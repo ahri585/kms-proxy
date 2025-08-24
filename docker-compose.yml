@@ -1,0 +1,16 @@
+services:
+  nginx:
+    image: nginx:stable
+    depends_on: [api]
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+
+  api:
+    build: ./api
+    expose:
+      - "8000"
+    environment:
+      AWS_REGION: ap-northeast-2
+      KMS_KEY_ID: arn:aws:kms:ap-northeast-2:539247492040:key/cf7892fb-15ac-426f-8712-a82574c1b0fb
