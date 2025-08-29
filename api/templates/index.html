@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>KMS 암호화 테스트 (단순 버전)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --b:#111827; --m:#6b7280; --bg:#f8fafc; --card:#fff; --br:#e5e7eb; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); margin: 0; padding: 24px; color: var(--b);}
+    .wrap { max-width: 920px; margin: 0 auto; }
+    h1 { margin: 0 0 16px; font-size: 22px; }
+    .card { background: var(--card); border:1px solid var(--br); border-radius: 14px; padding: 16px; box-shadow: 0 4px 14px rgba(0,0,0,.05); }
+    label { display:block; font-size: 13px; color: var(--m); margin: 10px 0 6px; }
+    input, textarea { width:100%; box-sizing: border-box; padding:10px 12px; border:1px solid var(--br); border-radius:10px; background:#fff; font:inherit; }
+    textarea { min-height:120px; resize: vertical; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top: 10px;}
+    .btn { cursor:pointer; border:0; padding:10px 16px; border-radius:10px; font-weight:600; }
+    .btn-primary { background:#2563eb; color:#fff; }
+    .btn-secondary { background:#e5e7eb; }
+    .out { margin-top: 16px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .muted { color: var(--m); font-size: 12px;}
+    .copy { font-size:12px; cursor:pointer; color:#2563eb; margin-left:8px; }
+    .err { color:#b91c1c; white-space:pre-wrap; margin-top:8px; }
+    .ok { color:#065f46; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>KMS 암호화 테스트 (단순)</h1>
+    <div class="card">
+      <label for="plain">평문 데이터 (string)</label>
+      <textarea id="plain" placeholder="여기에 평문을 입력하세요">Hello KMS + AES-GCM!</textarea>
+
+      <label for="aad">AAD (선택)</label>
+      <input id="aad" placeholder="예: kms-proxy-v1 (옵션)" />
+
+      <div class="row">
+        <button id="btnEncrypt" class="btn btn-primary">Encrypt</button>
+        <span id="status" class="muted"></span>
+      </div>
+
+      <div class="out">
+        <label>ciphertext (base64) <span class="copy" data-copy="ciphertext">복사</span></label>
+        <textarea id="ciphertext" class="mono" readonly placeholder="암호문 (ct||tag, base64)"></textarea>
+
+        <label>iv (base64) <span class="copy" data-copy="iv">복사</span></label>
+        <input id="iv" class="mono" readonly placeholder="IV (base64)" />
+
+        <label>wdek (base64) <span class="copy" data-copy="wdek">복사</span></label>
+        <textarea id="wdek" class="mono" readonly placeholder="KMS가 감싼 DEK (base64)"></textarea>
+
+        <div id="errBox" class="err"></div>
+        <div class="muted" style="margin-top:6px;">
+          * 같은 (키, AAD)로 <b>같은 IV를 재사용하면 안 됩니다</b>. 서버는 매번 무작위 96-bit IV를 생성합니다.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const plain = $('plain');
+    const aad = $('aad');
+    const btn = $('btnEncrypt');
+    const status = $('status');
+    const errBox = $('errBox');
+
+    const ciphertext = $('ciphertext');
+    const iv = $('iv');
+    const wdek = $('wdek');
+
+    // 복사 기능
+    document.querySelectorAll('.copy').forEach(el=>{
+      el.addEventListener('click', () => {
+        const id = el.dataset.copy;
+        const target = document.getElementById(id);
+        const val = target.value || target.innerText || '';
+        navigator.clipboard.writeText(val).then(()=>{
+          const prev = el.innerText;
+          el.innerText = '복사됨!';
+          setTimeout(()=> el.innerText = prev, 900);
+        });
+      });
+    });
+
+    btn.addEventListener('click', async () => {
+      errBox.innerText = '';
+      status.innerText = '암호화 중...';
+      btn.disabled = true;
+
+      try {
+        const body = { data: plain.value };
+        if (aad.value.trim() !== '') body.aad = aad.value.trim();
+
+        // 같은 오리진으로 보냄 (Nginx가 /api를 프록시)
+        const r = await fetch('/api/encrypt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const j = await r.json().catch(()=> ({}));
+        if (!r.ok || !j.ok) {
+          const msg = (j && j.error) ? j.error : `HTTP ${r.status}`;
+          throw new Error(msg);
+        }
+
+        ciphertext.value = j.ciphertext || '';
+        iv.value = j.iv || '';
+        wdek.value = j.wdek || '';
+        status.innerHTML = '<span class="ok">완료!</span>';
+      } catch (e) {
+        status.innerText = '';
+        errBox.innerText = 'Encrypt 오류: ' + (e && e.message ? e.message : e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+
