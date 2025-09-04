@@ -1,0 +1,16 @@
+# enn/secrets
+
+.env
+
+*.env
+.evn.*
+
+#python
+__pycache__/
+*.pyc
+
+#docker
+*.log
+docker-compose.override.yml
+
+

@@ -1,25 +1,51 @@
 services:
   nginx:
     image: nginx:stable
-    depends_on: 
-      - api
+    depends_on:
+      api:
+        condition: service_started
     ports:
-      - "80:80"
+      - "80:80"            # 외부 노출은 nginx의 80만
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
-    networks:
-      - default
+    restart: unless-stopped
+    networks: [kmsnet]
 
   api:
-    build: ./api
-    expose:
-      - "8000"
+    build:
+      context: ./api
+      dockerfile: Dockerfile
     env_file: .env
     command: ["gunicorn","-w","3","-b","0.0.0.0:8000","app:app"]
-    networks:
-      - default
+    expose:
+      - "8000"             # nginx와 내부 통신용
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [kmsnet]
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    # ❌ 외부 접속 금지: ports 절 없음!
+    restart: unless-stopped
+    networks: [kmsnet]
 
 networks:
-  defualt:
-    name: kms-proxy_default
-    external: true
+  kmsnet:
+
+volumes:
+  dbdata:
+
