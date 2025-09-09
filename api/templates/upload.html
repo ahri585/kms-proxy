@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>파일 암호화 / 복호화</title>
+  <style>
+    body { font-family: sans-serif; margin: 40px; }
+    nav { margin-bottom: 20px; }
+    nav button { margin-right: 10px; padding: 8px 16px; }
+    .tab { display: none; }
+    .tab.active { display: block; margin-top: 20px; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+    .download { display:inline-block; margin-top:10px; padding:10px 16px;
+                background:#4caf50; color:white; text-decoration:none; border-radius:6px; }
+    .download:hover { background:#45a049; }
+  </style>
+</head>
+<body>
+  <h1>파일 암호화 / 복호화</h1>
+
+  <nav>
+    <button onclick="showTab('encrypt')">암호화</button>
+    <button onclick="showTab('decrypt')">복호화</button>
+  </nav>
+
+  <!-- 암호화 탭 -->
+  <div id="encrypt" class="tab active">
+    <form id="encrypt-form">
+      <input type="file" name="file" required>
+      <button type="submit">업로드 & 암호화</button>
+    </form>
+    <div id="encrypt-result"></div>
+  </div>
+
+  <!-- 복호화 탭 -->
+  <div id="decrypt" class="tab">
+    <form id="decrypt-form">
+      <input type="text" name="token" placeholder="토큰 입력" required>
+      <button type="submit">복호화</button>
+    </form>
+    <div id="decrypt-result"></div>
+  </div>
+
+  <script>
+    function showTab(tabId) {
+      document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+    }
+
+    // 암호화 요청
+    document.getElementById("encrypt-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const res = await fetch("/api/encrypt", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById("encrypt-result").innerHTML = `
+          <p>토큰: <code>${data.token}</code></p>
+          <a class="download" href="${data.masked_file_url}" target="_blank">마스킹된 파일 다운로드</a>
+        `;
+      } else {
+        document.getElementById("encrypt-result").innerHTML =
+          `<p style="color:red;">에러: ${data.error} (${data.message || ''})</p>`;
+      }
+    });
+
+    // 복호화 요청
+    document.getElementById("decrypt-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const token = e.target.token.value.trim();
+      const res = await fetch("/api/decrypt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        const blob = new Blob([Uint8Array.from(atob(data.result), c => c.charCodeAt(0))]);
+        const url = URL.createObjectURL(blob);
+        const filename = data.filename || "decrypted_file";
+        document.getElementById("decrypt-result").innerHTML = `
+          <p>복호화 성공</p>
+          <a class="download" href="${url}" download="${filename}">원본 파일 다운로드</a>
+        `;
+      } else {
+        document.getElementById("decrypt-result").innerHTML =
+          `<p style="color:red;">에러: ${data.error} (${data.message || ''})</p>`;
+      }
+    });
+  </script>
+</body>
+</html>
+

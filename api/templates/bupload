@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>파일 업로드</title>
+  <style>
+    body { font-family: sans-serif; margin: 40px; }
+    .box { border: 2px dashed #ccc; padding: 20px; border-radius: 12px; max-width: 500px; }
+    .result { margin-top: 20px; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+    a.download { display:inline-block; margin-top:10px; padding:10px 16px; background:#4caf50; color:white; text-decoration:none; border-radius:6px; }
+    a.download:hover { background:#45a049; }
+  </style>
+</head>
+<body>
+  <h1>파일 업로드 & 암호화</h1>
+  <div class="box">
+    <form id="upload-form">
+      <input type="file" name="file" required>
+      <button type="submit">업로드</button>
+    </form>
+  </div>
+
+  <div class="result" id="result"></div>
+
+  <script>
+    const form = document.getElementById("upload-form");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(form);
+      const res = await fetch("/api/encrypt", {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById("result").innerHTML = `
+          <p>토큰: <code>${data.token}</code></p>
+          <a class="download" href="${data.masked_file_url}" target="_blank">마스킹된 파일 다운로드</a>
+        `;
+      } else {
+        document.getElementById("result").innerHTML = `<p style="color:red;">에러: ${data.error}</p>`;
+      }
+    });
+  </script>
+</body>
+</html>
+

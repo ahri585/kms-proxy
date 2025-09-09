@@ -5,7 +5,7 @@ services:
       api:
         condition: service_started
     ports:
-      - "80:80"            # 외부 노출은 nginx의 80만
+      - "80:80"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
     restart: unless-stopped
@@ -16,9 +16,10 @@ services:
       context: ./api
       dockerfile: Dockerfile
     env_file: .env
-    command: ["gunicorn","-w","3","-b","0.0.0.0:8000","app:app"]
+    command: >
+      gunicorn -w 3 -b 0.0.0.0:8000 --timeout 120 app:app
     expose:
-      - "8000"             # nginx와 내부 통신용
+      - "8000"
     depends_on:
       db:
         condition: service_healthy
@@ -39,7 +40,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
-    # ❌ 외부 접속 금지: ports 절 없음!
     restart: unless-stopped
     networks: [kmsnet]
 
