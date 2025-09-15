@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Lockument – Demo Portal</title>
+
+    <!-- Tailwind (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: { extend: { colors: {
+          sky: tailwind.colors.sky, slate: tailwind.colors.slate,
+          indigo: tailwind.colors.indigo, violet: tailwind.colors.violet,
+          amber: tailwind.colors.amber, rose: tailwind.colors.rose,
+        }}} ,
+      };
+    </script>
+
+    <!-- 안전 폴백: 프런트가 전역 name을 기대할 때 대비 -->
+    <script>
+      window.__CONFIG__ = window.__CONFIG__ || {};
+      window.__CONFIG__.name = window.__CONFIG__.name || "Lockument Demo Portal";
+    </script>
+
+    <!-- Vite 빌드 산출물 (현재 네 환경의 해시 파일명에 맞춤) -->
+    <script type="module" crossorigin src="/assets/index-DiahlGsz.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BsktKqjF.css">
+  </head>
+  <body class="bg-slate-50">
+    <!-- 루트 DOM: 번들이 root를 찾으면 여기로, app을 찾으면 아래 div로 마운트됨 -->
+    <div id="root"></div>
+    <div id="app"></div>
+
+    <!-- 디버그 오버레이: 런타임 에러를 화면 하단에 표시 (문제 해결 뒤엔 지워도 OK) -->
+    <script>
+      (function () {
+        function show(msg) {
+          var box = document.createElement('pre');
+          box.textContent = msg;
+          Object.assign(box.style,{
+            position:'fixed',left:'0',right:'0',bottom:'0',maxHeight:'50vh',
+            overflow:'auto',background:'rgba(0,0,0,0.85)',color:'#fff',
+            padding:'12px',margin:'0',zIndex:'999999',
+            font:'12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+          });
+          document.body.appendChild(box);
+        }
+        window.addEventListener('error', e =>
+          show('JS error: ' + e.message + '\n' + e.filename + ':' + e.lineno + ':' + e.colno)
+        );
+        window.addEventListener('unhandledrejection', e =>
+          show('Unhandled rejection: ' + (e.reason && (e.reason.stack || e.reason.message || e.reason)))
+        );
+      })();
+    </script>
+  </body>
+</html>
+

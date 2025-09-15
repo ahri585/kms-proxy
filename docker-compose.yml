@@ -1,13 +1,13 @@
 services:
-  nginx:
-    image: nginx:stable
+  web:
+    build:
+      context: ./web            # ← web 폴더의 Dockerfile 사용
+    container_name: kms-web
     depends_on:
       api:
         condition: service_started
     ports:
-      - "80:80"
-    volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - "80:80"                 # http://서버IP/
     restart: unless-stopped
     networks: [kmsnet]
 

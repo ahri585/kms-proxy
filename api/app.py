@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask
+from flask import Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from config import Config
 
@@ -15,11 +15,15 @@ def create_app():
     from routes_crypto import crypto_bp
     app.register_blueprint(crypto_bp)
 
-    # 헬스체크만 남김
+    # 헬스체크 (JSON + name 포함)
     @app.get("/api/health")
     def health():
-        return "api ok\n", 200
+        return jsonify({
+            "ok": True,
+            "name": "Lockument Demo Portal",
+        }), 200
 
     return app
 
 app = create_app()
+
