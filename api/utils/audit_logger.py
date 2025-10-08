@@ -1,0 +1,48 @@
+# utils/audit_logger.py
+from flask import request, current_app, g
+from sqlalchemy import text
+from app import db
+import json, datetime as dt
+
+def log_audit(tbl_name: str, op: str, new_data: dict, old_data: dict = None):
+    """
+    pii_audit.audit_logs에 JSON 기반 감사 로그 남기기
+    - tbl_name: 관련 테이블 이름 (예: 'crypto_tokens')
+    - op: 동작 ('ENCRYPT', 'DECRYPT', 'MASK' 등)
+    - new_data: {"status": "SUCCESS", "token": "...", "meta": {...}}
+    """
+
+    try:
+        user_id = getattr(g, "user_id", None) or "anonymous"
+        ip = request.remote_addr or "unknown"
+        ua = request.headers.get("User-Agent", "unknown")
+
+        meta = {
+            "client_ip": ip,
+            "user_agent": ua,
+            "user_id": user_id,  # ✅ 사용자 ID 추가
+            "timestamp": dt.datetime.utcnow().isoformat()
+        }
+
+        row_new = dict(new_data)
+        row_new["meta"] = meta
+
+        sql = text("""
+            INSERT INTO pii_audit.audit_logs (tbl_name, op, changed_at, row_old, row_new)
+            VALUES (:tbl, :op, now(), :old, :new)
+        """)
+
+        db.session.execute(sql, {
+            "tbl": tbl_name,
+            "op": op,
+            "old": json.dumps(old_data or {}, ensure_ascii=False),
+            "new": json.dumps(row_new, ensure_ascii=False)
+        })
+        db.session.commit()
+
+        current_app.logger.info(f"[AUDIT_LOG] {op} by user={user_id}")
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.warning(f"[AUDIT_LOG_FAIL] {e}")
+

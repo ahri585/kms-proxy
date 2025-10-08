@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>회원가입</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- 캐시/뒤로가기 복원 방지 -->
+  <meta http-equiv="Cache-Control" content="no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <style>
+    :root{
+      --bg:#ffffff; --text:#111827; --muted:#6b7280;
+      --card:#f9fafb; --border:#d1d5db;
+      --accent:#2563eb; --accent-hover:#1d4ed8;
+      --ok:#16a34a; --err:#b91c1c;
+      --radius:12px; --shadow:0 4px 12px rgba(0,0,0,.08);
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Pretendard,sans-serif; background:var(--bg); color:var(--text);}
+
+    /* 상단 네비 (옵션) */
+    nav{display:flex;justify-content:space-between;align-items:center;
+      padding:14px 18px;border-bottom:1px solid var(--border);background:#f3f4f6;}
+    nav .left{font-weight:800;}
+    nav .right a{margin-left:12px; color:var(--accent); text-decoration:none; font-weight:700; font-size:14px}
+
+    .card{max-width:420px; margin:40px auto; padding:24px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow);}
+    h2{margin:0 0 8px; font-size:24px}
+    p.sub{margin:0 0 18px; color:var(--muted); font-size:14px}
+    label{display:block; font-size:13px; color:var(--muted); margin-top:12px}
+    input{width:100%; padding:12px; margin-top:6px; border-radius:10px; border:1px solid var(--border); background:#fff; color:var(--text); font-size:14px;}
+    button{margin-top:16px; width:100%; padding:12px; border:none; border-radius:10px; background:var(--accent); color:#fff; font-weight:700; cursor:pointer;}
+    button:hover{background:var(--accent-hover)}
+    .meta{margin-top:10px; font-size:14px}
+    .meta a{color:var(--accent); text-decoration:none}
+    #register-result{margin-top:12px; font-size:14px}
+  </style>
+  <script>
+    // 이미 로그인 상태면 회원가입 페이지 접근 시 홈으로 (히스토리 치환)
+    (function guardWhenLoggedIn(){
+      const token = localStorage.getItem("access_token");
+      if(token){ location.replace("/"); }
+    })();
+
+    // 뒤로가기(bfcache)로 복원되어도 재검사
+    window.addEventListener("pageshow", (e)=>{
+      const token = localStorage.getItem("access_token");
+      if(token || e.persisted){ location.replace("/"); }
+    });
+  </script>
+</head>
+<body>
+  <nav>
+    <div class="left">Lockument Demo</div>
+    <div class="right">
+      <a href="/">홈</a>
+      <a href="/login">로그인</a>
+    </div>
+  </nav>
+
+  <div class="card">
+    <h2>회원가입</h2>
+    <p class="sub">이메일로 간단히 가입할 수 있어요.</p>
+
+    <form id="register-form" autocomplete="off">
+      <label for="email">이메일</label>
+      <input id="email" type="email" name="email" placeholder="you@example.com" required>
+
+      <label for="username">닉네임 (선택)</label>
+      <input id="username" type="text" name="username" placeholder="아리">
+
+      <label for="password">비밀번호 (8자 이상)</label>
+      <input id="password" type="password" name="password" minlength="8" placeholder="********" required>
+
+      <button id="btnSubmit" type="submit">회원가입</button>
+    </form>
+
+    <div id="register-result"></div>
+    <div class="meta">이미 계정이 있으신가요? <a href="/login">로그인</a></div>
+  </div>
+
+  <script>
+    const errors = {
+      email_taken: "이미 가입된 이메일입니다.",
+      invalid_email: "이메일 형식이 올바르지 않습니다.",
+      weak_password: "비밀번호는 8자 이상이어야 합니다."
+    };
+
+    const form = document.getElementById("register-form");
+    const btn = document.getElementById("btnSubmit");
+    const box = document.getElementById("register-result");
+
+    form.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      box.style.color = ""; box.textContent = "처리 중...";
+      btn.disabled = true;
+
+      const data = {
+        email: form.email.value.trim(),
+        username: (form.username.value || "").trim(),
+        password: form.password.value
+      };
+
+      try{
+        const res = await fetch("/api/register", {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify(data)
+        });
+        const json = await res.json().catch(()=>({ok:false, error:"invalid_json"}));
+
+        if(json.ok){
+          // 회원가입 성공 → 로그인 페이지로 (뒤로가기로 이 페이지 안 돌아오도록 치환)
+          box.style.color = "var(--ok)";
+          box.textContent = "회원가입 성공! 로그인 해주세요.";
+          location.replace("/login");
+        }else{
+          box.style.color = "var(--err)";
+          box.textContent = "에러: " + (errors[json.error] || json.error || "unknown");
+        }
+      }catch(err){
+        box.style.color = "var(--err)";
+        box.textContent = "에러: " + (err?.message || err);
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+

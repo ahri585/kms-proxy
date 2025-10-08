@@ -1,33 +1,45 @@
+version: "3.9"
+
 services:
   web:
-    build:
-      context: ./web            # ← web 폴더의 Dockerfile 사용
-    container_name: kms-web
+    image: nginx:1.28
+    container_name: kms-proxy-web-1
     depends_on:
-      api:
-        condition: service_started
+      - api
     ports:
-      - "80:80"                 # http://서버IP/
+      - "80:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
     restart: unless-stopped
-    networks: [kmsnet]
+    networks:
+      - kmsnet
 
   api:
     build:
       context: ./api
       dockerfile: Dockerfile
+    container_name: kms-proxy-api-1
     env_file: .env
-    command: >
-      gunicorn -w 3 -b 0.0.0.0:8000 --timeout 120 app:app
-    expose:
-      - "8000"
+    # ✅ 로컬 코드 동기화 (Flask config.py, templates 등 인식)
+    volumes:
+      - ./api:/app
+    environment:
+      GUNICORN_CMD_ARGS: >
+        --bind 0.0.0.0:8000
+        --workers 2
+        --worker-class gthread
+        --threads 4
+    command: sh -lc 'gunicorn app:app $GUNICORN_CMD_ARGS'
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
-    networks: [kmsnet]
+    networks:
+      - kmsnet
 
   db:
     image: postgres:16
+    container_name: kms-proxy-db-1
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -36,12 +48,13 @@ services:
       - dbdata:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 12
     restart: unless-stopped
-    networks: [kmsnet]
+    networks:
+      - kmsnet
 
 networks:
   kmsnet:

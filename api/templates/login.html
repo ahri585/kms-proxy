@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>로그인 - Lockument</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <style>
+    :root{
+      --bg:#f8fafc; --text:#0f172a; --muted:#64748b;
+      --card:#ffffff; --border:#e2e8f0;
+      --accent:#3b82f6; --accent-hover:#2563eb;
+      --ok:#10b981; --err:#ef4444;
+      --radius:16px; --shadow:0 8px 24px rgba(0,0,0,.12);
+      --gradient:linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Pretendard,"Apple SD Gothic Neo",sans-serif;
+      background:var(--bg);
+      color:var(--text);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:20px;
+    }
+    
+    /* 배경 그라데이션 효과 */
+    body::before{
+      content:"";
+      position:fixed;
+      top:0;
+      left:0;
+      right:0;
+      bottom:0;
+      background:var(--gradient);
+      opacity:.05;
+      z-index:0;
+    }
+    
+    .card{
+      position:relative;
+      z-index:1;
+      max-width:440px;
+      width:100%;
+      padding:40px;
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+    }
+    
+    .logo{
+      text-align:center;
+      font-size:36px;
+      margin-bottom:8px;
+    }
+    
+    h2{
+      margin:0 0 10px;
+      font-size:28px;
+      font-weight:800;
+      text-align:center;
+      background:var(--gradient);
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+      background-clip:text;
+    }
+    
+    p.sub{
+      margin:0 0 28px;
+      color:var(--muted);
+      font-size:15px;
+      text-align:center;
+    }
+    
+    .input-group{
+      margin-bottom:16px;
+    }
+    
+    .input-group label{
+      display:block;
+      margin-bottom:6px;
+      color:var(--text);
+      font-weight:600;
+      font-size:14px;
+    }
+    
+    input{
+      width:100%;
+      padding:14px 16px;
+      border-radius:10px;
+      border:2px solid var(--border);
+      background:#fff;
+      color:var(--text);
+      font-size:15px;
+      transition:.2s;
+      outline:none;
+    }
+    
+    input:focus{
+      border-color:var(--accent);
+      box-shadow:0 0 0 3px rgba(59,130,246,.1);
+    }
+    
+    input::placeholder{
+      color:var(--muted);
+    }
+    
+    button{
+      margin-top:24px;
+      width:100%;
+      padding:14px;
+      border:none;
+      border-radius:10px;
+      background:var(--gradient);
+      color:#fff;
+      font-weight:700;
+      font-size:16px;
+      cursor:pointer;
+      transition:.2s;
+      box-shadow:0 4px 12px rgba(102,126,234,.3);
+    }
+    
+    button:hover{
+      transform:translateY(-2px);
+      box-shadow:0 6px 16px rgba(102,126,234,.4);
+    }
+    
+    button:active{
+      transform:translateY(0);
+    }
+    
+    button:disabled{
+      opacity:.6;
+      cursor:not-allowed;
+      transform:none;
+    }
+    
+    .meta{
+      margin-top:24px;
+      text-align:center;
+      font-size:14px;
+      color:var(--muted);
+    }
+    
+    .meta a{
+      color:var(--accent);
+      text-decoration:none;
+      font-weight:700;
+    }
+    
+    .meta a:hover{
+      text-decoration:underline;
+    }
+    
+    #login-result{
+      margin-top:16px;
+      padding:12px 16px;
+      border-radius:8px;
+      font-size:14px;
+      font-weight:600;
+      text-align:center;
+      display:none;
+    }
+    
+    #login-result.success{
+      display:block;
+      background:#d1fae5;
+      color:#065f46;
+      border:1px solid #6ee7b7;
+    }
+    
+    #login-result.error{
+      display:block;
+      background:#fee2e2;
+      color:#991b1b;
+      border:1px solid #fecaca;
+    }
+    
+    #login-result.loading{
+      display:block;
+      background:#dbeafe;
+      color:#1e40af;
+      border:1px solid #93c5fd;
+    }
+    
+    /* 로딩 애니메이션 */
+    @keyframes spin{
+      to{transform:rotate(360deg)}
+    }
+    
+    .spinner{
+      display:inline-block;
+      width:14px;
+      height:14px;
+      border:2px solid currentColor;
+      border-right-color:transparent;
+      border-radius:50%;
+      animation:spin .6s linear infinite;
+      margin-right:8px;
+      vertical-align:middle;
+    }
+    
+    /* 반응형 */
+    @media(max-width:500px){
+      .card{
+        padding:32px 24px;
+      }
+      h2{font-size:24px}
+      .logo{font-size:28px}
+    }
+  </style>
+  <script>
+    // ✅ 세션 유지 대신 브라우저 닫으면 자동 로그아웃(sessionStorage 사용)
+    (function guardWhenLoggedIn(){
+      const token = sessionStorage.getItem("access_token") || sessionStorage.getItem("token");
+      if(token){ location.replace("/"); }
+    })();
+    
+    window.addEventListener("pageshow",(e)=>{
+      const token = sessionStorage.getItem("access_token") || sessionStorage.getItem("token");
+      if(token){ location.replace("/"); }
+    });
+    
+    document.addEventListener("DOMContentLoaded", ()=>{
+      const loginBtn = document.getElementById("login-btn");
+      const emailInput = document.getElementById("email");
+      const passwordInput = document.getElementById("password");
+      const resultBox = document.getElementById("login-result");
+      
+      // Enter 키 처리
+      [emailInput, passwordInput].forEach(input => {
+        input.addEventListener("keypress", (e) => {
+          if(e.key === "Enter"){
+            loginBtn.click();
+          }
+        });
+      });
+      
+      loginBtn.addEventListener("click", async ()=>{
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
+        
+        // 유효성 검사
+        if(!email){
+          resultBox.className = "error";
+          resultBox.textContent = "❌ 이메일을 입력해주세요.";
+          emailInput.focus();
+          return;
+        }
+        
+        if(!password){
+          resultBox.className = "error";
+          resultBox.textContent = "❌ 비밀번호를 입력해주세요.";
+          passwordInput.focus();
+          return;
+        }
+        
+        // 로딩 상태
+        resultBox.className = "loading";
+        resultBox.innerHTML = '<span class="spinner"></span>로그인 중...';
+        loginBtn.disabled = true;
+        
+        try {
+          const res = await fetch("/api/login", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({ email, password })
+          });
+          
+          const json = await res.json();
+          
+          if(json.ok){
+            // ✅ sessionStorage에 로그인 세션 저장 (브라우저 닫으면 사라짐)
+            sessionStorage.setItem("access_token", json.access_token);
+            sessionStorage.setItem("token", json.access_token); // 호환성
+            sessionStorage.setItem("user_role", json.user.role || "user");
+            sessionStorage.setItem("role", json.user.role || "user"); // 호환성
+            
+            if(json.expires_in){
+              const expiry = Math.floor(Date.now()/1000) + json.expires_in;
+              sessionStorage.setItem("token_expiry", expiry);
+            }
+            
+            resultBox.className = "success";
+            resultBox.textContent = "✅ 로그인 성공! 이동 중...";
+            
+            // 부드러운 전환을 위한 딜레이
+            setTimeout(() => {
+              location.replace("/");
+            }, 800);
+            
+          }else{
+            resultBox.className = "error";
+            resultBox.textContent = "❌ " + (json.message || json.error || "로그인에 실패했습니다.");
+            loginBtn.disabled = false;
+          }
+          
+        }catch(err){
+          console.error("Login error:", err);
+          resultBox.className = "error";
+          resultBox.textContent = "❌ 서버 연결에 실패했습니다. 다시 시도해주세요.";
+          loginBtn.disabled = false;
+        }
+      });
+    });
+  </script>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🔐</div>
+    <h2>Lockument</h2>
+    <p class="sub">이메일과 비밀번호를 입력해 주세요</p>
+    
+    <form id="login-form" onsubmit="return false;">
+      <div class="input-group">
+        <label for="email">이메일</label>
+        <input type="email" id="email" placeholder="example@email.com" required autocomplete="email">
+      </div>
+      
+      <div class="input-group">
+        <label for="password">비밀번호</label>
+        <input type="password" id="password" placeholder="비밀번호를 입력하세요" required autocomplete="current-password">
+      </div>
+      
+      <button type="button" id="login-btn">로그인</button>
+    </form>
+    
+    <div id="login-result"></div>
+    
+    <div class="meta">
+      처음이신가요? <a href="/register">회원가입</a>
+    </div>
+  </div>
+</body>
+</html>

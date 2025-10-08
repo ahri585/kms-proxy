@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>회원가입 - Lockument</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <style>
+    :root{
+      --bg:#f8fafc; --card:#ffffff; --border:#e2e8f0;
+      --text:#0f172a; --muted:#64748b; --accent:#3b82f6; --accent-2:#2563eb;
+      --success:#10b981; --danger:#ef4444; --warning:#f59e0b;
+      --radius:16px; --shadow:0 4px 20px rgba(0,0,0,.08);
+      --gradient:linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      color:var(--text);
+      background:var(--bg);
+      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Pretendard,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    }
+    
+    /* 네비게이션 */
+    nav{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      padding:16px 24px;
+      background:#ffffff;
+      border-bottom:1px solid var(--border);
+      box-shadow:0 1px 3px rgba(0,0,0,.05);
+      position:sticky;
+      top:0;
+      z-index:100;
+    }
+    nav .left{
+      font-weight:800;
+      font-size:22px;
+      letter-spacing:-.3px;
+      background:var(--gradient);
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+      background-clip:text;
+    }
+    nav .right{
+      display:flex;
+      align-items:center;
+      gap:16px;
+      font-size:14px;
+    }
+    nav .right a{
+      color:var(--text);
+      background:none;
+      border:none;
+      cursor:pointer;
+      font-weight:600;
+      text-decoration:none;
+      transition:.2s;
+      padding:8px 12px;
+      border-radius:8px;
+    }
+    nav .right a:hover{
+      background:#f1f5f9;
+    }
+    
+    /* 메인 컨테이너 */
+    .wrap{
+      max-width:480px;
+      margin:60px auto;
+      padding:0 24px;
+    }
+    
+    /* 카드 */
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:40px;
+    }
+    
+    .headline{
+      font-size:32px;
+      font-weight:800;
+      margin:0 0 10px;
+      background:var(--gradient);
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+      background-clip:text;
+    }
+    
+    .sub{
+      color:var(--muted);
+      margin:0 0 32px;
+      font-size:16px;
+    }
+    
+    /* 폼 요소 */
+    label{
+      display:block;
+      font-size:14px;
+      font-weight:700;
+      color:var(--text);
+      margin:20px 0 8px;
+    }
+    
+    input[type="text"],
+    input[type="email"],
+    input[type="password"]{
+      width:100%;
+      border:2px solid var(--border);
+      color:var(--text);
+      background:#fff;
+      border-radius:10px;
+      padding:12px 16px;
+      outline:none;
+      font-size:15px;
+      transition:.2s;
+    }
+    
+    input[type="text"]:focus,
+    input[type="email"]:focus,
+    input[type="password"]:focus{
+      border-color:var(--accent);
+      box-shadow:0 0 0 3px rgba(59,130,246,.1);
+    }
+    
+    /* 버튼 */
+    .btn{
+      width:100%;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      background:var(--gradient);
+      color:#fff;
+      border:none;
+      border-radius:10px;
+      padding:14px 20px;
+      cursor:pointer;
+      font-weight:700;
+      font-size:15px;
+      transition:.2s;
+      box-shadow:0 2px 8px rgba(102,126,234,.3);
+      margin-top:24px;
+    }
+    
+    .btn:hover:not(:disabled){
+      transform:translateY(-2px);
+      box-shadow:0 4px 16px rgba(102,126,234,.4);
+    }
+    
+    .btn:active:not(:disabled){
+      transform:translateY(0);
+    }
+    
+    .btn:disabled{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    
+    /* 결과 메시지 */
+    #register-result{
+      margin-top:16px;
+      padding:12px 16px;
+      border-radius:8px;
+      font-weight:600;
+      font-size:14px;
+      display:none;
+    }
+    
+    #register-result.success{
+      display:block;
+      color:#065f46;
+      background:#d1fae5;
+      border:1px solid #a7f3d0;
+    }
+    
+    #register-result.error{
+      display:block;
+      color:var(--danger);
+      background:#fee2e2;
+      border:1px solid #fecaca;
+    }
+    
+    /* 메타 링크 */
+    .meta{
+      margin-top:24px;
+      text-align:center;
+      font-size:14px;
+      color:var(--muted);
+    }
+    
+    .meta a{
+      color:var(--accent);
+      text-decoration:none;
+      font-weight:700;
+      transition:.2s;
+    }
+    
+    .meta a:hover{
+      color:var(--accent-2);
+      text-decoration:underline;
+    }
+    
+    /* 반응형 */
+    @media(max-width:640px){
+      .wrap{
+        margin:40px auto;
+      }
+      .card{
+        padding:28px 24px;
+      }
+      .headline{
+        font-size:28px;
+      }
+    }
+    
+    /* 로딩 애니메이션 */
+    @keyframes pulse{
+      0%, 100%{opacity:1}
+      50%{opacity:.5}
+    }
+    .loading{
+      animation:pulse 1.5s ease-in-out infinite;
+    }
+  </style>
+  <script>
+    // 이미 로그인 상태면 회원가입 페이지 접근 시 홈으로 (히스토리 치환)
+    (function guardWhenLoggedIn(){
+      const token = sessionStorage.getItem("access_token") || sessionStorage.getItem("token");
+      if(token){ location.replace("/"); }
+    })();
+
+    // 뒤로가기(bfcache)로 복원되어도 재검사
+    window.addEventListener("pageshow", (e)=>{
+      const token = sessionStorage.getItem("access_token") || sessionStorage.getItem("token");
+      if(token || e.persisted){ location.replace("/"); }
+    });
+  </script>
+</head>
+<body>
+  <nav>
+    <div class="left">🔐 Lockument</div>
+    <div class="right">
+      <a href="/">홈</a>
+      <a href="/login">로그인</a>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <div class="card">
+      <h1 class="headline">회원가입</h1>
+      <p class="sub">이메일로 간단히 가입할 수 있어요.</p>
+
+      <form id="register-form" autocomplete="off">
+        <label for="email">📧 이메일</label>
+        <input id="email" type="email" name="email" placeholder="you@example.com" required>
+
+        <label for="username">👤 닉네임 (선택)</label>
+        <input id="username" type="text" name="username" placeholder="아리">
+
+        <label for="password">🔑 비밀번호 (8자 이상)</label>
+        <input id="password" type="password" name="password" minlength="8" placeholder="********" required>
+
+        <button id="btnSubmit" type="submit" class="btn">회원가입</button>
+      </form>
+
+      <div id="register-result"></div>
+      
+      <div class="meta">
+        이미 계정이 있으신가요? <a href="/login">로그인</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const errors = {
+      email_taken: "이미 가입된 이메일입니다.",
+      invalid_email: "이메일 형식이 올바르지 않습니다.",
+      weak_password: "비밀번호는 8자 이상이어야 합니다."
+    };
+
+    const form = document.getElementById("register-form");
+    const btn = document.getElementById("btnSubmit");
+    const box = document.getElementById("register-result");
+
+    form.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      
+      // 결과 박스 초기화 및 로딩 상태
+      box.className = "";
+      box.style.display = "block";
+      box.textContent = "처리 중...";
+      box.classList.add("loading");
+      btn.disabled = true;
+
+      const data = {
+        email: form.email.value.trim(),
+        username: (form.username.value || "").trim(),
+        password: form.password.value
+      };
+
+      try{
+        const res = await fetch("/api/register", {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify(data)
+        });
+        const json = await res.json().catch(()=>({ok:false, error:"invalid_json"}));
+
+        box.classList.remove("loading");
+
+        if(json.ok){
+          // 회원가입 성공 → 로그인 페이지로 (뒤로가기로 이 페이지 안 돌아오도록 치환)
+          box.className = "success";
+          box.textContent = "✓ 회원가입 성공! 로그인 페이지로 이동합니다...";
+          setTimeout(()=> location.replace("/login"), 1500);
+        }else{
+          box.className = "error";
+          box.textContent = "✗ " + (errors[json.error] || json.error || "알 수 없는 오류가 발생했습니다.");
+        }
+      }catch(err){
+        box.classList.remove("loading");
+        box.className = "error";
+        box.textContent = "✗ 에러: " + (err?.message || err);
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

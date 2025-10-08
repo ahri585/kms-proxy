@@ -2,46 +2,285 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <title>파일 업로드</title>
+  <title>파일 암호화 / 복호화</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <style>
-    body { font-family: sans-serif; margin: 40px; }
-    .box { border: 2px dashed #ccc; padding: 20px; border-radius: 12px; max-width: 500px; }
-    .result { margin-top: 20px; }
-    code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
-    a.download { display:inline-block; margin-top:10px; padding:10px 16px; background:#4caf50; color:white; text-decoration:none; border-radius:6px; }
-    a.download:hover { background:#45a049; }
+    :root{
+      --bg:#ffffff; --card:#f9fafb; --border:#d1d5db;
+      --text:#111827; --muted:#6b7280; --accent:#2563eb; --accent-2:#1d4ed8;
+      --success:#16a34a; --danger:#b91c1c;
+      --radius:12px; --shadow:0 4px 12px rgba(0,0,0,.08);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;color:var(--text);background:var(--bg);
+      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Pretendard,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+    nav{display:flex;justify-content:space-between;align-items:center;
+      padding:14px 18px;border-bottom:1px solid var(--border);background:#f3f4f6;position:sticky;top:0;z-index:10}
+    nav .left{font-weight:800;font-size:18px;letter-spacing:-.2px}
+    nav .right{display:flex;align-items:center;gap:12px;font-size:14px}
+    nav .right a, nav .right button{margin-left:8px;color:var(--accent);background:none;border:none;cursor:pointer;
+      font-weight:700;text-decoration:none}
+    .wrap{max-width:1000px;margin:28px auto;padding:0 18px}
+    .headline{font-size:28px;font-weight:800;margin:0 0 8px}
+    .sub{color:var(--muted);margin:0 0 20px}
+    .tabs{display:flex;gap:10px;margin-bottom:18px}
+    .tab-btn{background:#fff;color:var(--muted);border:1px solid var(--border);padding:10px 16px;border-radius:8px;cursor:pointer;transition:.15s}
+    .tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}
+    @media(max-width:900px){.grid{grid-template-columns:1fr}}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px}
+    .section-title{font-weight:700;margin:4px 0 10px}
+    .muted{color:var(--muted);font-size:13px}
+    .btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-weight:700}
+    .btn:hover{background:var(--accent-2)}
+    .btn-secondary{background:#e5e7eb;color:#111827}
+    .btn-download{background:var(--success);color:#fff;text-decoration:none}
+    fieldset{border:1px solid var(--border);border-radius:10px;padding:12px;margin:14px 0 0;background:#fff}
+    legend{padding:0 6px;color:#374151;font-weight:700}
+    input[type="text"]{width:100%;border:1px solid var(--border);color:#111827;background:#fff;border-radius:8px;padding:10px 12px;outline:none}
+    code{background:#eef2ff;color:#1f2937;padding:3px 6px;border-radius:6px;border:1px solid #e5e7eb}
+    .mask-actions{display:flex;gap:8px;margin:8px 0}
+    .mask-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}
+    .mask-grid label{display:flex;gap:8px;align-items:center;user-select:none;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+    .dropzone{border:2px dashed var(--border);border-radius:10px;min-height:160px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+      text-align:center;gap:6px;padding:20px;background:#fff;color:#4b5563;cursor:pointer}
+    .file-meta{font-size:13px;color:#374151}
+    .preview{white-space:pre-wrap;background:#fff;border:1px solid var(--border);color:#111827;padding:12px;border-radius:10px;margin-top:12px;max-height:320px;overflow:auto}
+    .err{color:var(--danger)}
+
+    /* 추가된 로그 버튼 스타일 */
+    nav .right .btn-log {
+      background: var(--accent);
+      color: #fff !important;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-weight: 700;
+      transition: 0.15s;
+    }
+    nav .right .btn-log:hover { background: var(--accent-2); }
   </style>
 </head>
+
 <body>
-  <h1>파일 업로드 & 암호화</h1>
-  <div class="box">
-    <form id="upload-form">
-      <input type="file" name="file" required>
-      <button type="submit">업로드</button>
-    </form>
+  <nav>
+    <div class="left">Lockument Demo</div>
+    <div class="right" id="nav-right">
+      <!-- JS에서 로그인 상태에 따라 버튼 표시 -->
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <h1 class="headline">파일 암호화 / 복호화</h1>
+    <p class="sub">Drag & Drop 업로드 · 선택적 마스킹 · 토큰 기반 복호화</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="showTab('encrypt')">암호화</button>
+      <button class="tab-btn" onclick="showTab('decrypt')">복호화</button>
+    </div>
+
+    <div class="grid">
+      <div class="card" id="encrypt" style="display:block;">
+        <h3 class="section-title">업로드</h3>
+        <div id="dropzone" class="dropzone">
+          <div><strong>여기로 드래그</strong>하거나 클릭해서 파일을 선택하세요</div>
+          <small>PDF, DOCX, XLSX, TXT 등 지원</small>
+          <div id="file-meta" class="file-meta"></div>
+        </div>
+        <input id="file-input" type="file" style="display:none" />
+
+        <fieldset>
+          <legend>마스킹할 항목 선택</legend>
+          <div class="mask-actions">
+            <button type="button" id="select-all" class="btn btn-secondary">전체 선택</button>
+            <button type="button" id="clear-all" class="btn btn-secondary">전체 해제</button>
+          </div>
+          <div id="mask-grid" class="mask-grid"></div>
+          <p class="muted">※ 주민등록번호, 여권번호, 운전면허, 외국인등록번호, 인증정보(auth)는 항상 마스킹됩니다.</p>
+        </fieldset>
+
+        <div style="margin-top:14px;">
+          <button id="btn-encrypt" class="btn">업로드 & 암호화</button>
+          <span id="enc-status" class="muted"></span>
+        </div>
+        <div id="encrypt-result" style="margin-top:14px;"></div>
+        <div id="masked-preview" class="preview" style="display:none;"></div>
+        <div id="enc-error" class="err" style="margin-top:8px;"></div>
+      </div>
+
+      <div class="card" id="decrypt" style="display:none;">
+        <h3 class="section-title">토큰 입력</h3>
+        <input type="text" id="dec-token" placeholder="토큰 입력" />
+        <div style="margin-top:12px;">
+          <button id="btn-decrypt" class="btn">복호화</button>
+          <span id="dec-status" class="muted"></span>
+        </div>
+        <div id="decrypt-result" style="margin-top:14px;"></div>
+        <div id="dec-error" class="err" style="margin-top:8px;"></div>
+      </div>
+    </div>
   </div>
 
-  <div class="result" id="result"></div>
-
   <script>
-    const form = document.getElementById("upload-form");
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const formData = new FormData(form);
-      const res = await fetch("/api/encrypt", {
-        method: "POST",
-        body: formData
-      });
-      const data = await res.json();
-      if (data.ok) {
-        document.getElementById("result").innerHTML = `
-          <p>토큰: <code>${data.token}</code></p>
-          <a class="download" href="${data.masked_file_url}" target="_blank">마스킹된 파일 다운로드</a>
+    // ✅ 세션 저장소 기반으로 변경
+    const getToken = () => sessionStorage.getItem("access_token");
+    const getExpiry = () => parseInt(sessionStorage.getItem("token_expiry") || "0");
+    const getRole = () => sessionStorage.getItem("user_role");
+
+    function startSessionTimer(expiry){
+      const timerEl = document.getElementById("session-timer");
+      if(!timerEl) return;
+      function tick(){
+        const now = Math.floor(Date.now()/1000);
+        const remain = expiry - now;
+        if(remain <= 0){
+          sessionStorage.clear();
+          location.replace("/login");
+          return;
+        }
+        const m = String(Math.floor(remain/60)).padStart(2,"0");
+        const s = String(remain%60).padStart(2,"0");
+        timerEl.textContent = `남은 시간: ${m}:${s}`;
+        setTimeout(tick,1000);
+      }
+      tick();
+    }
+
+    async function paintNav(){
+      const navRight = document.getElementById("nav-right");
+      const token = getToken();
+      const role = getRole();
+
+      if(!token){
+        navRight.innerHTML = `
+          <a href="/login">로그인</a>
+          <a href="/register">회원가입</a>
         `;
-      } else {
-        document.getElementById("result").innerHTML = `<p style="color:red;">에러: ${data.error}</p>`;
+        return;
+      }
+
+      try{
+        const r = await fetch("/api/me",{headers:{Authorization:"Bearer "+token}});
+        if(!r.ok){ if(r.status===401){sessionStorage.clear();} return;}
+        const j = await r.json();
+
+        if(j.ok){
+          const logBtn = role === "admin"
+            ? `<a href="/recent/view" class="btn-log">로그 기록</a>`
+            : "";
+          navRight.innerHTML = `
+            ${logBtn}
+            <span id="session-timer" style="margin-right:10px;color:#374151;font-weight:700"></span>
+            <span style="color:#374151;font-weight:700">${j.user.username || j.user.email}님</span>
+            <button id="btnLogout">로그아웃</button>
+          `;
+          document.getElementById("btnLogout").onclick = ()=>{
+            sessionStorage.clear();
+            location.replace("/login");
+          };
+          const exp = getExpiry();
+          if(exp){ startSessionTimer(exp); }
+        }
+      }catch(_){}
+    }
+
+    window.addEventListener("pageshow",(e)=>{ if(e.persisted){ paintNav(); }});
+
+    function showTab(id){
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.card').forEach(c=>c.style.display='none');
+      document.getElementById(id).style.display='block';
+      if(id==='encrypt'){
+        document.querySelector('.tabs .tab-btn:first-child').classList.add('active');
+      }else{
+        document.querySelector('.tabs .tab-btn:last-child').classList.add('active');
+      }
+    }
+
+    const LABELS={phone:"전화번호",email:"이메일",card_or_acct:"카드/계좌",auth:"인증정보",address:"주소"};
+
+    function renderMaskCheckboxes(){
+      const grid=document.getElementById("mask-grid"); grid.innerHTML="";
+      Object.keys(LABELS).forEach(t=>{
+        const el=document.createElement("label");
+        el.innerHTML=`<input type="checkbox" name="mask_types" value="${t}"><span>${LABELS[t]}</span>`;
+        grid.appendChild(el);
+      });
+      document.getElementById("select-all").onclick=()=>grid.querySelectorAll('input').forEach(cb=>cb.checked=true);
+      document.getElementById("clear-all").onclick=()=>grid.querySelectorAll('input').forEach(cb=>cb.checked=false);
+    }
+
+    // 드래그앤드롭
+    const dropzone=document.getElementById("dropzone"),fileInput=document.getElementById("file-input"),fileMeta=document.getElementById("file-meta");
+    dropzone.addEventListener("click",()=>fileInput.click());
+    fileInput.addEventListener("change",()=>{const f=fileInput.files?.[0]; if(f){fileMeta.textContent=`선택됨: ${f.name} (${Math.round(f.size/1024)} KB)`;}});
+    ["dragenter","dragover","dragleave","drop"].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();}));
+    dropzone.addEventListener("drop",(e)=>{const f=e.dataTransfer.files?.[0]; if(f){fileInput.files=e.dataTransfer.files; fileMeta.textContent=`선택됨: ${f.name}`;}});
+
+    // 암호화
+    document.getElementById("btn-encrypt").addEventListener("click",async()=>{
+      const encStatus=document.getElementById("enc-status"),
+            encBox=document.getElementById("encrypt-result"),
+            encErr=document.getElementById("enc-error"),
+            encPreview=document.getElementById("masked-preview");
+
+      encErr.textContent=""; encStatus.textContent="업로드/암호화 중...";
+      const file=fileInput.files?.[0]; if(!file){alert("파일을 선택하세요"); encStatus.textContent=""; return;}
+
+      try{
+        const formData=new FormData(); formData.append("file",file);
+        const selected=[...document.querySelectorAll('input[name="mask_types"]:checked')].map(x=>x.value);
+        if(selected.length>0){formData.append("mask_types",selected.join(","));}
+        const token=getToken(); if(!token){location.href="/login"; return;}
+
+        const res=await fetch("/api/encrypt",{method:"POST",body:formData,headers:{Authorization:"Bearer "+token}});
+        if(res.status===401){sessionStorage.clear();location.href="/login";return;}
+        const data=await res.json();
+
+        if(data.ok){
+          const downloadBtn=data.masked_file_url
+            ? `<a class="btn btn-download" href="${data.masked_file_url}" target="_blank">마스킹된 파일 다운로드</a>`
+            : `<span class="muted">masked_file_url 없음(백엔드 확인 필요)</span>`;
+          encBox.innerHTML=`<p>토큰: <code>${data.token}</code></p><p>적용 규칙: <code>${(data.effective_mask_types||[]).join(", ")}</code></p><p>탐지/마스킹 통계: <code>${JSON.stringify(data.pii_stats||{},null,0)}</code></p>${downloadBtn}`;
+          if(data.masked_preview){encPreview.style.display="block";encPreview.textContent=data.masked_preview;}else{encPreview.style.display="none";encPreview.textContent="";}
+          encStatus.textContent="완료!";
+        }else{
+          encErr.textContent="에러: "+(data.error||"unknown");
+          encStatus.textContent="";
+        }
+      }catch(e){
+        encErr.textContent="에러: "+(e?.message||e);
+        encStatus.textContent="";
       }
     });
+
+    // 복호화
+    document.getElementById("btn-decrypt").addEventListener("click",async()=>{
+      const decStatus=document.getElementById("dec-status"),
+            decErr=document.getElementById("dec-error"),
+            decResult=document.getElementById("decrypt-result");
+
+      decErr.textContent=""; decStatus.textContent="복호화 중...";
+      const tokenStr=document.getElementById("dec-token").value.trim(); 
+      if(!tokenStr){alert("토큰을 입력하세요"); decStatus.textContent=""; return;}
+      const token=getToken(); if(!token){location.href="/login"; return;}
+
+      try{
+        const res=await fetch("/api/decrypt",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({token:tokenStr})});
+        if(!res.ok){const err=await res.json().catch(()=>({}));decErr.textContent="에러: "+(err.error||res.statusText);decStatus.textContent="";return;}
+        const blob=await res.blob();const url=URL.createObjectURL(blob);
+        const contentDisp=res.headers.get("Content-Disposition")||"";let fn="decrypted_file";
+        const match=contentDisp.match(/filename\*=UTF-8''(.+)|filename="?([^"]+)"?/);if(match)fn=decodeURIComponent(match[1]||match[2]);
+        decResult.innerHTML=`<a class="btn btn-download" href="${url}" download="${fn}">원본 파일 다운로드</a>`;decStatus.textContent="완료!";
+      }catch(e){
+        decErr.textContent="에러: "+(e?.message||e);
+        decStatus.textContent="";
+      }
+    });
+
+    (async()=>{await paintNav(); renderMaskCheckboxes();})();
   </script>
 </body>
 </html>

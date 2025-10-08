@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>관리자 로그 기록</title>
+  <style>
+    body { font-family: sans-serif; margin: 30px; }
+    h2 { margin-bottom: 10px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f2f2f2; }
+    .error { color: red; font-weight: bold; margin-top: 20px; }
+    .info { color: #333; margin-top: 10px; }
+    #reload { margin-top: 10px; padding: 6px 12px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h2>최근 감사 로그 (관리자 전용)</h2>
+  <div class="info">이 페이지는 관리자만 접근 가능합니다.</div>
+  <div id="error" class="error"></div>
+  <button id="reload" onclick="loadLogs()">🔄 새로고침</button>
+
+  <table id="logTable" style="display:none;">
+    <thead>
+      <tr>
+        <th>작업</th>
+        <th>상태</th>
+        <th>사용자</th>
+        <th>IP</th>
+        <th>브라우저</th>
+        <th>변경시각</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    async function loadLogs() {
+      const errorDiv = document.getElementById("error");
+      const table = document.getElementById("logTable");
+      errorDiv.textContent = "";
+      table.style.display = "none";
+
+      // ✅ 1. 로컬스토리지에서 토큰/권한 불러오기
+      const token = localStorage.getItem("access_token");
+      const role = localStorage.getItem("user_role");
+
+      if (!token) {
+        errorDiv.textContent = "로그인이 필요합니다. 로그인 후 다시 시도하세요.";
+        return;
+      }
+      if (role !== "admin") {
+        errorDiv.textContent = "관리자만 접근 가능합니다.";
+        return;
+      }
+
+      // ✅ 2. 서버 요청
+      try {
+        const res = await fetch("/api/audit/recent", {
+          headers: {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json"
+          }
+        });
+
+        // 토큰 만료 또는 인증 실패 시
+        if (res.status === 401) {
+          errorDiv.textContent = "세션이 만료되었습니다. 다시 로그인 해주세요.";
+          localStorage.removeItem("access_token");
+          return;
+        }
+
+        const data = await res.json();
+
+        if (!data.ok) {
+          errorDiv.textContent = "접근 실패: " + (data.message || data.error || "알 수 없는 오류");
+          return;
+        }
+
+        // ✅ 3. 테이블 채우기
+        const tbody = table.querySelector("tbody");
+        tbody.innerHTML = "";
+        data.logs.forEach(log => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${log.op || ""}</td>
+            <td>${log.status || ""}</td>
+            <td>${log.user_id || ""}</td>
+            <td>${log.ip || ""}</td>
+            <td>${log.browser || ""}</td>
+            <td>${new Date(log.changed_at).toLocaleString("ko-KR")}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        table.style.display = "table";
+
+      } catch (err) {
+        console.error("요청 실패:", err);
+        errorDiv.textContent = "서버 연결에 실패했습니다.";
+      }
+    }
+
+    // ✅ 페이지 진입 시 자동 실행
+    loadLogs();
+  </script>
+</body>
+</html>
+

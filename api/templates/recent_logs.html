@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>관리자 로그 기록</title>
+  <style>
+    body { font-family: sans-serif; margin: 30px; background: #f5f5f5; }
+    h2 { margin-bottom: 10px; color: #333; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+    th { background: #2c3e50; color: white; font-weight: bold; }
+    .error { color: red; font-weight: bold; margin-top: 20px; padding: 10px; background: #ffe6e6; border-radius: 4px; }
+    .info { color: #333; margin-top: 10px; padding: 10px; background: #e3f2fd; border-radius: 4px; }
+    #reload { 
+      margin-top: 10px; 
+      padding: 8px 16px; 
+      cursor: pointer; 
+      background: #2196F3; 
+      color: white; 
+      border: none; 
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    #reload:hover { background: #1976D2; }
+    
+    /* 작업 타입별 색상 */
+    .op-encrypt { 
+      background: #e8f5e9; 
+      color: #2e7d32; 
+      font-weight: bold;
+      padding: 4px 8px;
+      border-radius: 3px;
+    }
+    .op-decrypt { 
+      background: #fff3e0; 
+      color: #ef6c00; 
+      font-weight: bold;
+      padding: 4px 8px;
+      border-radius: 3px;
+    }
+    
+    /* 상태별 색상 */
+    .status-success { 
+      background: #2196F3; 
+      color: white; 
+      font-weight: bold;
+      padding: 4px 8px;
+      border-radius: 3px;
+    }
+    .status-failed { 
+      background: #f44336; 
+      color: white; 
+      font-weight: bold;
+      padding: 4px 8px;
+      border-radius: 3px;
+    }
+    
+    /* 행 호버 효과 */
+    tbody tr:hover { background: #f5f5f5; }
+    
+    /* 짝수 행 배경 */
+    tbody tr:nth-child(even) { background: #fafafa; }
+  </style>
+</head>
+<body>
+  <h2>최근 감사 로그 (관리자 전용)</h2>
+  <div class="info">이 페이지는 관리자만 접근 가능합니다.</div>
+  <div id="error" class="error" style="display:none;"></div>
+  <button id="reload" onclick="loadLogs()">🔄 새로고침</button>
+  <table id="logTable" style="display:none;">
+    <thead>
+      <tr>
+        <th>작업</th>
+        <th>상태</th>
+        <th>사용자</th>
+        <th>IP</th>
+        <th>브라우저</th>
+        <th>변경시간</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <script>
+    async function loadLogs() {
+      const errorDiv = document.getElementById("error");
+      const table = document.getElementById("logTable");
+      errorDiv.textContent = "";
+      errorDiv.style.display = "none";
+      table.style.display = "none";
+      
+      // sessionStorage에서 토큰/권한 불러오기
+      const token = sessionStorage.getItem("token") || 
+                    sessionStorage.getItem("access_token") || 
+                    sessionStorage.getItem("jwt_token");
+      
+      const role = sessionStorage.getItem("role") || 
+                   sessionStorage.getItem("user_role");
+      
+      console.log("Token:", token ? "존재함" : "없음");  // 디버깅용
+      console.log("Role:", role);    // 디버깅용
+      
+      if (!token) {
+        errorDiv.textContent = "로그인이 필요합니다. 로그인 후 다시 시도하세요.";
+        errorDiv.style.display = "block";
+        return;
+      }
+      
+      if (role !== "admin") {
+        errorDiv.textContent = "관리자만 접근 가능합니다.";
+        errorDiv.style.display = "block";
+        return;
+      }
+      
+      // 서버 요청
+      try {
+        const res = await fetch("/api/audit/recent", {
+          headers: {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json"
+          }
+        });
+        
+        // 토큰 만료 또는 인증 실패 시
+        if (res.status === 401) {
+          errorDiv.textContent = "세션이 만료되었습니다. 다시 로그인해주세요.";
+          errorDiv.style.display = "block";
+          sessionStorage.clear();
+          return;
+        }
+        
+        if (res.status === 403) {
+          errorDiv.textContent = "관리자 권한이 필요합니다.";
+          errorDiv.style.display = "block";
+          return;
+        }
+        
+        const data = await res.json();
+        
+        if (!data.ok) {
+          errorDiv.textContent = "접근 실패: " + (data.message || data.error || "알 수 없는 오류");
+          errorDiv.style.display = "block";
+          return;
+        }
+        
+        // 테이블 채우기
+        const tbody = table.querySelector("tbody");
+        tbody.innerHTML = "";
+        
+        if (!data.logs || data.logs.length === 0) {
+          errorDiv.textContent = "표시할 로그가 없습니다.";
+          errorDiv.style.display = "block";
+          return;
+        }
+        
+        data.logs.forEach(log => {
+          const tr = document.createElement("tr");
+          
+          // 작업 타입 (ENCRYPT/DECRYPT)
+          const opText = (log.op || "-").toUpperCase();
+          let opClass = "";
+          if (opText === "ENCRYPT") {
+            opClass = "op-encrypt";
+          } else if (opText === "DECRYPT") {
+            opClass = "op-decrypt";
+          }
+          
+          // 상태 (SUCCESS/FAILED)
+          const statusText = (log.status || "-").toUpperCase();
+          let statusClass = "";
+          if (statusText === "SUCCESS") {
+            statusClass = "status-success";
+          } else if (statusText === "FAILED") {
+            statusClass = "status-failed";
+          }
+          
+          tr.innerHTML = `
+            <td><span class="${opClass}">${opText}</span></td>
+            <td><span class="${statusClass}">${statusText}</span></td>
+            <td>${log.user_id || "-"}</td>
+            <td>${log.ip || "-"}</td>
+            <td>${log.browser || "-"}</td>
+            <td>${log.changed_at ? new Date(log.changed_at).toLocaleString("ko-KR") : "-"}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+        
+        table.style.display = "table";
+        
+      } catch (err) {
+        console.error("요청 실패:", err);
+        errorDiv.textContent = "서버 연결에 실패했습니다.";
+        errorDiv.style.display = "block";
+      }
+    }
+    
+    // 페이지 진입 시 자동 실행
+    loadLogs();
+  </script>
+</body>
+</html>
