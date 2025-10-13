@@ -8,8 +8,10 @@ services:
       - api
     ports:
       - "80:80"
+      - "443:443"                              # ✅ HTTPS 포트 추가
     volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro    # Nginx 설정
+      - /etc/letsencrypt:/etc/letsencrypt:ro   # ✅ 인증서 공유 추가
     restart: unless-stopped
     networks:
       - kmsnet
@@ -20,7 +22,6 @@ services:
       dockerfile: Dockerfile
     container_name: kms-proxy-api-1
     env_file: .env
-    # ✅ 로컬 코드 동기화 (Flask config.py, templates 등 인식)
     volumes:
       - ./api:/app
     environment:
