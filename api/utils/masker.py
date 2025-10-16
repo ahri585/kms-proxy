@@ -3,16 +3,9 @@ from pptx import Presentation
 from docx import Document as DocxDocument
 from typing import Optional, List, Tuple
 
-# ──────────────────────────────
-# 유틸: SHA256 해시
-# ──────────────────────────────
 def sha256_hex(b: bytes) -> str:
-    """SHA256 해시 (민감정보 식별용)"""
     return hashlib.sha256(b).hexdigest()
 
-# ──────────────────────────────
-# 민감정보(PII) 정규식 패턴 정의
-# ──────────────────────────────
 AUTH_VALUE_SUB_RE = re.compile(
     r'((password|api[_ ]?key|token)\s*[:=]\s*)([\'"]?)[^\'",\s]+([\'"]?)',
     re.IGNORECASE
@@ -20,11 +13,10 @@ AUTH_VALUE_SUB_RE = re.compile(
 
 PII_RULES_MAP = {
     "rrn": (
-        re.compile(r"\b\d{6}-\d{7}\b"),
+        re.compile(r"\b\d{6}[-]?\d{7}\b"),
         lambda s: "######-*******"
     ),
     "email": (
-        # 이메일 도메인(.co.kr 등) 인식은 하되, 주소 패턴 오탐 방지
         re.compile(r"\b([A-Za-z0-9._%+-])([A-Za-z0-9._%+-]*)(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b"),
         lambda s: (s[0] + "***" + s[s.find('@'):]) if "@" in s else s
     ),
@@ -48,24 +40,23 @@ PII_RULES_MAP = {
         re.compile(r"\b\d{6}-[5-8]\d{6}\b"),
         lambda s: "######-*******"
     ),
-    # 📞 전화번호: 현행(010) + 과거(011~019), 하이픈 유무 모두 허용
     "phone": (
-        re.compile(r"\b(01[016789]-?\d{3,4}-?\d{4}|01[016789]\d{7,8})\b"),
-        lambda s: s[:3] + "-****-" + s[-4:]
+        re.compile(r"\b(01[016789])[ ._-]?\d{3,4}[ ._-]?\d{4}\b"),
+        lambda s: "010-****-****"
     ),
-    # 🏙️ 주소: KISA Strong 수준 (시·도만 남기고 이하 [주소마스킹])
     "address": (
-        re.compile(r"(?<!@)([가-힣]+(?:시|도))\s?[가-힣0-9\s]*(?:구|군|읍|면)?\s?[가-힣0-9\s]*(?:로|길)?\s?\d{0,4}"),
-        lambda s: re.sub(r"\s?[가-힣0-9\s]*(?:구|군|읍|면|로|길)\s?\d{0,4}", " [주소마스킹]", s)
+        re.compile(r"[가-힣]+\s*(시|군|구)\s*[가-힣0-9\s\-]*(동|읍|면|리|로|길)\s*\d*[-]?\d*호?"),
+        lambda s: "[주소마스킹]"
+    ),
+    "name": (
+        re.compile(r"(?<![가-힣])([가-힣]{2,4})(?![가-힣])"),
+        lambda s: "[이름마스킹]"
     ),
 }
 
 ALWAYS_MASK = {"rrn", "passport", "license", "foreign_id", "auth"}
 VALID_KEYS = set(PII_RULES_MAP.keys())
 
-# ──────────────────────────────
-# 우선순위 목록 (숫자열 충돌 방지)
-# ──────────────────────────────
 ORDERED_LABELS = [
     "auth",
     "email",
@@ -76,15 +67,11 @@ ORDERED_LABELS = [
     "passport",
     "license",
     "card_or_acct",
+    "name",
 ]
 
-# ──────────────────────────────
-# 문자열 마스킹 처리
-# ──────────────────────────────
 def process_pii(text: str, allowed_types: Optional[List[str]] = None) -> Tuple[str, list, dict]:
-    """텍스트 내 개인정보(PII) 감지 및 마스킹 처리"""
     hits, stats, masked = [], {}, text
-
     sel = _normalize_allowed_types(allowed_types)
     for a in ALWAYS_MASK:
         if a not in sel:
@@ -107,18 +94,12 @@ def process_pii(text: str, allowed_types: Optional[List[str]] = None) -> Tuple[s
             return masked_val
 
         masked = pattern.sub(repl, masked)
-
     return masked, hits, stats
 
 def apply_mask_str(s: str, allowed_types: Optional[List[str]]) -> str:
-    """단일 문자열 마스킹"""
     return process_pii(s, allowed_types)[0]
 
-# ──────────────────────────────
-# 파일 단위 마스킹 처리
-# ──────────────────────────────
 def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[List[str]]) -> str:
-    """파일 단위 마스킹 수행"""
     ext = os.path.splitext(src_path)[1].lower()
     os.makedirs(os.path.dirname(dst_masked_path), exist_ok=True)
 
@@ -182,24 +163,21 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
 
     return os.path.basename(dst_masked_path)
 
-# ──────────────────────────────
-# 마스킹 항목 정규화 유틸
-# ──────────────────────────────
 ALIASES = {
     "전화": "phone",
     "이메일": "email",
     "카드": "card_or_acct",
     "계좌": "card_or_acct",
-    "인증": "auth",
+    "비밀번호": "auth",
     "주민등록번호": "rrn",
     "여권": "passport",
     "운전면허": "license",
     "외국인등록": "foreign_id",
-    "주소": "address"
+    "주소": "address",
+    "이름": "name",
 }
 
 def _normalize_allowed_types(allowed_types: Optional[List[str] | str]) -> List[str]:
-    """선택된 마스킹 항목을 정규화하여 유효한 리스트로 반환"""
     if not allowed_types:
         return list(ALWAYS_MASK)
 
@@ -221,5 +199,4 @@ def _normalize_allowed_types(allowed_types: Optional[List[str] | str]) -> List[s
         k = ALIASES.get(p.lower(), p.lower())
         if k in VALID_KEYS:
             out.append(k)
-    return list(dict.fromkeys(out))  # 중복 제거 + 순서 유지
-
+    return list(dict.fromkeys(out))

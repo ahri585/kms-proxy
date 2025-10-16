@@ -41,9 +41,6 @@ def create_app():
             r"/upload/*": {
                 "origins": ["http://localhost:5173", "http://localhost:5000", "https://lockument.duckdns.org"]
             },
-            r"/static/masked/*": {   # ✅ 추가 (마스킹 파일 CORS 허용)
-                "origins": ["https://lockument.duckdns.org", "http://localhost:5173"]
-            },
         },
     )
     
@@ -71,13 +68,11 @@ def create_app():
     # ──────────────────────────────
     # Blueprint 등록
     # ──────────────────────────────
-    from routes_crypto import crypto_bp, masked_bp  # ✅ masked_bp 추가
+    from routes_crypto import crypto_bp
     from routes_auth import auth_bp
-
     app.register_blueprint(crypto_bp)
     app.register_blueprint(auth_bp)
-    app.register_blueprint(masked_bp)  # ✅ 여기가 핵심
-    app.logger.info("✅ Blueprint 등록 완료 (crypto, auth, masked)")
+    app.logger.info("✅ Blueprint 등록 완료 (crypto, auth)")
     
     # ──────────────────────────────
     # ✅ Vite 정적 파일 서빙
@@ -114,4 +109,3 @@ def create_app():
 # Gunicorn 진입점
 # ──────────────────────────────
 app = create_app()
-

@@ -1,0 +1,43 @@
+<!-- index.html -->
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lockument</title>
+
+    <!-- ✅ favicon 및 meta -->
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <meta
+      name="description"
+      content="Lockument — Secure Document Encryption Portal"
+    />
+    <script type="module" crossorigin src="/assets/index-CfByizTu.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-gGJGCCaU.css">
+  </head>
+
+  <body class="bg-slate-50 dark:bg-slate-900">
+    <!-- ✅ React Root -->
+    <div id="root"></div>
+
+    <!-- ✅ React 진입점 -->
+
+    <!-- 🧩 런타임 에러 캡처용 (배포 디버그용) -->
+    <script>
+      window.addEventListener("error", (e) => {
+        const msg = `[JS Error] ${e.message} @ ${e.filename}:${e.lineno}`;
+        console.log(msg);
+        // alert(msg); // 필요 시 주석 해제하면 바로 표시됨
+      });
+
+      window.addEventListener("unhandledrejection", (e) => {
+        const msg = `[Promise Error] ${e.reason}`;
+        console.log(msg);
+      });
+
+      console.log("[Lockument] index.html loaded successfully");
+    </script>
+  </body>
+</html>
+
+

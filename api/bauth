@@ -1,9 +1,10 @@
 import os, re, time, jwt
 from functools import wraps
-from datetime import datetime
-from flask import Blueprint, request, jsonify, g
+from datetime import datetime, timedelta
+from flask import Blueprint, request, jsonify, g, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.exc import IntegrityError
+
 from app import db
 from models import User
 
@@ -120,7 +121,7 @@ def register():
             "email": user.email,
             "role": user.role,
         },
-        "access_token": token,   # ✅ 프론트 호환
+        "token": token,
         "exp": int(time.time()) + JWT_EXPIRES
     })
 
@@ -144,9 +145,9 @@ def login():
             "id": user.id,
             "username": user.username,
             "email": user.email,
-            "role": user.role,
+            "role": user.role,  # ✅ AuthContext 호환
         },
-        "access_token": token,   # ✅ 핵심 변경
+        "token": token,
         "exp": int(time.time()) + JWT_EXPIRES
     })
 
@@ -198,7 +199,27 @@ def change_password():
 # 현재 로그인 사용자 조회 헬퍼
 # ──────────────────────────────
 def get_current_user():
-    """현재 요청의 JWT에서 유저 객체를 조회"""
-    if not hasattr(g, "user_id"):
-        return None
     return User.query.get(g.user_id)
+
+
+# ──────────────────────────────
+# ⚙️ 1회용 관리자 계정 생성 라우트 (Blueprint 방식)
+# ──────────────────────────────
+@auth_bp.post("/dev/create_admin")
+def create_admin_dev():
+    """개발용 관리자 생성 — 1회 실행 후 삭제 권장"""
+    existing = User.query.filter_by(email="root@gmail.com").first()
+    if existing:
+        return _ok({"ok": False, "msg": "admin already exists"})
+
+    admin = User(
+        username="admin",
+        email="admin@gmail.com",
+        role="admin"
+    )
+    admin.password_hash = generate_password_hash("12345678")
+    db.session.add(admin)
+    db.session.commit()
+
+    return _ok({"msg": "admin created", "email": admin.email, "password": "12341234"})
+

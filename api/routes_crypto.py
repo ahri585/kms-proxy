@@ -1,81 +1,72 @@
-import os, base64, json, uuid, io, re, hashlib, tempfile, shutil
+import os, base64, json, uuid, io, re, hashlib, tempfile, shutil, urllib.parse
 from typing import Optional, List, Tuple
-from flask import Blueprint, jsonify, request, render_template, send_from_directory, send_file, current_app,make_response, g
+from flask import (
+    Blueprint, jsonify, request, render_template,
+    send_file, send_from_directory, current_app
+)
 from sqlalchemy import text
-from routes_auth import jwt_required,get_current_user
-import boto3, urllib.parse
+from routes_auth import jwt_required, get_current_user
+import boto3
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from secrets import token_bytes
 from app import db
-from routes_auth import jwt_required  # 중복 import
 from utils.file_parser import parse_any
-from utils.masker import process_pii, apply_mask_str, ALWAYS_MASK, handle_masking, VALID_KEYS, _normalize_allowed_types
+from utils.masker import (
+    process_pii, apply_mask_str, ALWAYS_MASK,
+    handle_masking, VALID_KEYS, _normalize_allowed_types
+)
 from utils.crypto_core import encrypt_bytes, decrypt_bytes
 from utils.audit_logger import log_audit
-# 파일 파싱 라이브러리
-import pdfplumber
-import docx
 from docx import Document as DocxDocument
-import openpyxl
+from pptx import Presentation
 import pandas as pd
-from pptx import Presentation  # PPTX 지원
+import openpyxl
+import pdfplumber
 
-# ═══════════════════════════════════════════
-# 환경설정
-# ═══════════════════════════════════════════
+# ──────────────────────────────
+# 기본 설정
+# ──────────────────────────────
 REGION = os.getenv("AWS_REGION", "ap-northeast-2")
 KMS_KEY_ID = os.getenv("KMS_KEY_ID", "alias/KEK")
-
-crypto_bp = Blueprint("crypto", __name__)
+crypto_bp = Blueprint("crypto", __name__, url_prefix="/api/crypto")
+masked_bp = Blueprint("masked_files", __name__)  # ✅ 별도 Blueprint
 kms = boto3.client("kms", region_name=REGION)
 
-# ═══════════════════════════════════════════
-# 확장자별 MIME
-# ═══════════════════════════════════════════
+# ──────────────────────────────
+# MIME 매핑
+# ──────────────────────────────
 MIMETYPES = {
-    ".txt":  "text/plain",
-    ".pdf":  "application/pdf",
+    ".txt": "text/plain",
+    ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".csv":  "text/csv",
+    ".csv": "text/csv",
     ".json": "application/json",
-    ".rtf":  "application/rtf",
-    ".odt":  "application/vnd.oasis.opendocument.text",
-    ".ppt":  "application/vnd.ms-powerpoint",
-    ".doc":  "application/msword",
+    ".rtf": "application/rtf",
+    ".odt": "application/vnd.oasis.opendocument.text",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".doc": "application/msword",
 }
 
 def guess_mime_by_ext(fname: str) -> str:
     ext = os.path.splitext(fname)[1].lower()
     return MIMETYPES.get(ext, "application/octet-stream")
 
-# ═══════════════════════════════════════════
-# 파일 형태 보존 마스킹(DOCX/PPTX 등)
-# ═══════════════════════════════════════════
+# ──────────────────────────────
+# DOCX / PPTX / XLSX 마스킹
+# ──────────────────────────────
 def mask_docx(in_path: str, out_path: str, allowed_types: Optional[List[str]]):
     doc = DocxDocument(in_path)
-
-    # 본문 문단
-    for p in doc.paragraphs:
-        p.text = apply_mask_str(p.text, allowed_types)
-
-    # 표
+    for paragraph in doc.paragraphs:
+        for run in paragraph.runs:
+            run.text = apply_mask_str(run.text, allowed_types)
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
-                for p in cell.paragraphs:
-                    p.text = apply_mask_str(p.text, allowed_types)
-
-    # (선택) 헤더/푸터
-    for section in doc.sections:
-        if section.header:
-            for p in section.header.paragraphs:
-                p.text = apply_mask_str(p.text, allowed_types)
-        if section.footer:
-            for p in section.footer.paragraphs:
-                p.text = apply_mask_str(p.text, allowed_types)
-
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.text = apply_mask_str(run.text, allowed_types)
     doc.save(out_path)
 
 def mask_pptx(in_path: str, out_path: str, allowed_types: Optional[List[str]]):
@@ -83,155 +74,135 @@ def mask_pptx(in_path: str, out_path: str, allowed_types: Optional[List[str]]):
     for slide in prs.slides:
         for shape in slide.shapes:
             if hasattr(shape, "has_text_frame") and shape.has_text_frame:
-                tf = shape.text_frame
-                for para in tf.paragraphs:
+                for para in shape.text_frame.paragraphs:
                     para.text = apply_mask_str(para.text, allowed_types)
-    prs.save(out_path, g)
+    prs.save(out_path)
 
-# ═══════════════════════════════════════════
-# API
-# ═══════════════════════════════════════════
-@crypto_bp.get("/api/mask-types")
-def list_mask_types():
-    return jsonify({"ok": True, "types": sorted(PII_RULES_MAP.keys())}), 200
+def mask_xlsx(in_path: str, out_path: str, allowed_types: Optional[List[str]]):
+    try:
+        wb = openpyxl.load_workbook(in_path, data_only=False, keep_links=False)
+    except Exception as e:
+        raise ValueError(f"엑셀 파일을 열 수 없습니다: {e}")
 
-@crypto_bp.post("/api/encrypt")
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str):
+                    cell.value = apply_mask_str(cell.value, allowed_types)
+
+    tmp_out = out_path + ".tmp"
+    wb.save(tmp_out)
+    wb.close()
+    shutil.move(tmp_out, out_path)
+
+# ──────────────────────────────
+# 암호화 + 마스킹
+# ──────────────────────────────
+@crypto_bp.post("/encrypt")
 @jwt_required
 def encrypt():
     try:
+        current_app.logger.info("[encrypt] 시작")
+
         if "file" not in request.files:
             return jsonify({"ok": False, "error": "file_required"}), 400
 
         f = request.files["file"]
         raw = f.read()
-        # 원본 파일명 보존 (확장자 포함)
-        original_filename = f.filename if f.filename else "upload.bin"
-        filename = original_filename.strip() or "upload.bin"
-        
-        # 디버깅 로그 추가
-        current_app.logger.info(f"Original filename: {filename}")
-        
+        filename = f.filename or "upload.bin"
         name, ext = os.path.splitext(filename)
         token = str(uuid.uuid4())
 
-        # --- 프론트에서 전달한 마스킹 타입 가져오기 ---
+        # --- 마스킹 타입 처리 ---
         mask_types = None
         if request.form.get("mask_types"):
             try:
                 mask_types = json.loads(request.form["mask_types"])
             except Exception:
                 mask_types = request.form.getlist("mask_types")
-        elif request.is_json:
-            body = request.get_json(silent=True) or {}
-            mask_types = body.get("mask_types")
 
-        # 타입 최종 집합 계산
         if not mask_types:
-            types_to_use = None  # process_pii(None) 시 전체 적용
+            types_to_use = None
         else:
             norm = _normalize_allowed_types(mask_types)
             types_to_use = sorted(ALWAYS_MASK | set(norm)) or None
 
-        # 미리보기/통계용 텍스트
         parsed_text = parse_any(filename, raw)
-        current_app.logger.info(f"Parsed text preview: {parsed_text[:500]!r}")
+        masked_text = None
+        stats = {}
         if parsed_text:
-            masked_preview_text, _, stats = process_pii(parsed_text, types_to_use)
-            masked_preview_bytes = masked_preview_text.encode("utf-8", "ignore")
-        else:
-            masked_preview_bytes = b""
-            stats = {}
+            masked_text, _, stats = process_pii(parsed_text, types_to_use)
 
-        # 실제로 원본을 임시파일로 만든 뒤 형태 보존 마스킹에 필요)
         tmp_dir = tempfile.mkdtemp(prefix="locku_")
         try:
             upload_tmp = os.path.join(tmp_dir, f"src{ext or '.bin'}")
             with open(upload_tmp, "wb") as w:
                 w.write(raw)
 
-            # 마스킹 파일 저장: 확장자 보존 / 일반 형태는 .txt로 대체
-            masked_dir = os.path.join("static", "masked")
+            masked_dir = os.path.join(current_app.root_path, "static", "masked")
             os.makedirs(masked_dir, exist_ok=True)
-            masked_name = f"{(name or 'upload')}.mask{ext or '.bin'}"
+            masked_name = f"{name}.masked{ext or '.bin'}"
             masked_path = os.path.join(masked_dir, masked_name)
 
-            final_masked_name = handle_masking(upload_tmp, masked_path, types_to_use)
-            final_masked_path = os.path.join(masked_dir, final_masked_name)
+            ext_lower = ext.lower()
+            if ext_lower == ".docx":
+                mask_docx(upload_tmp, masked_path, types_to_use)
+            elif ext_lower == ".pptx":
+                mask_pptx(upload_tmp, masked_path, types_to_use)
+            elif ext_lower == ".xlsx":
+                mask_xlsx(upload_tmp, masked_path, types_to_use)
+            elif ext_lower in [".txt", ".csv", ".json", ".rtf", ".odt"]:
+                with open(masked_path, "w", encoding="utf-8") as w:
+                    w.write(masked_text or parsed_text or "")
+            else:
+                handle_masking(upload_tmp, masked_path, types_to_use)
 
-            # DB 저장 - filename에 원본 파일명(확장자 포함) 저장
             meta = {
-                "filename": filename,  # 확장자 포함된 원본 파일명
+                "filename": filename,
                 "pii_count": sum(stats.values()) if stats else 0,
                 "pii_stats": stats,
-                "masked_file": f"/upload/masked/{final_masked_name}",
+                "masked_file": f"/static/masked/{masked_name}",
             }
-            
-            # 디버깅: meta 확인
-            current_app.logger.info(f"Saving meta: {meta}")
-            
+
             enc = encrypt_bytes(raw, meta)
-            sql = text("""
+            db.session.execute(text("""
                 INSERT INTO crypto_store.crypto_tokens
                     (token, wdek, iv, ciphertext, tag, meta)
                 VALUES
                     (:token, :wdek, :iv, :ciphertext, :tag, CAST(:meta AS JSONB))
-            """)
-            db.session.execute(sql, {
-                "token": token,
-                **enc
-            })
+            """), {"token": token, **enc})
             db.session.commit()
 
-            # 감사 로그 기록
-            log_audit(
-                    "crypto_tokens",
-                    "ENCRYPT",
-                    {"status": "SUCCESS", "token": token, "meta": meta},
-            )
+            log_audit("crypto_tokens", "ENCRYPT", {"status": "SUCCESS", "token": token, "meta": meta})
 
-            # 실제 적용 규칙 목록
-            effective_mask_types = sorted(VALID_KEYS) if types_to_use is None else list(types_to_use)
+            host = request.host or "lockument.duckdns.org"
+            base_url = f"https://{host}"
+            masked_url = f"{base_url}/static/masked/{urllib.parse.quote(masked_name)}"
 
             return jsonify({
                 "ok": True,
                 "token": token,
-                "masked_file_url": f"/upload/masked/{final_masked_name}",
+                "masked_file_url": masked_url,
                 "pii_stats": stats,
-                "masked_preview": masked_preview_bytes[:500].decode("utf-8", "ignore"),
-                "effective_mask_types": effective_mask_types,
             }), 200
 
         finally:
-            try:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-            except Exception:
-                pass
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     except Exception as e:
         db.session.rollback()
-        current_app.logger.exception("encrypt_failed")
-        
-        # 실패 시 감사 로그
-        log_audit(
-                "crypto_tokens",
-                "ENCRYPT",
-                {"status": "FAILED", "error": str(e)},
-        )
+        current_app.logger.exception(f"[encrypt] 오류: {e}")
+        log_audit("crypto_tokens", "ENCRYPT", {"status": "FAILED", "error": str(e)})
         return jsonify({"ok": False, "error": "encrypt_failed", "message": str(e)}), 500
 
-
-@crypto_bp.post("/api/decrypt")
+# ──────────────────────────────
+# 복호화
+# ──────────────────────────────
+@crypto_bp.post("/decrypt")
 @jwt_required
 def decrypt():
-    """
-    기본: 원본 파일 스트림으로 반환(다운로드)
-    ?mode=json → 기존처럼 base64 JSON 응답
-    """
     try:
-        body = request.get_json(silent=True)
-        if not body:
-            body = request.form.to_dict()
-
+        body = request.get_json(silent=True) or request.form.to_dict()
         token = body.get("token")
         if not token:
             return jsonify({"ok": False, "error": "missing_token"}), 400
@@ -245,127 +216,113 @@ def decrypt():
             return jsonify({"ok": False, "error": "token_not_found"}), 404
 
         wdek_b64, iv_b64, ct_b64, raw_meta = row
-
-        # 메타(파일명) 파싱
-        meta = {}
-        if isinstance(raw_meta, str):
-            try:
-                meta = json.loads(raw_meta)
-            except Exception:
-                pass
-        elif isinstance(raw_meta, dict):
-            meta = raw_meta
-            
+        meta = json.loads(raw_meta) if isinstance(raw_meta, str) else (raw_meta or {})
         filename = meta.get("filename", "decrypted_file.bin")
-        
-        # 디버깅 로그
-        current_app.logger.info(f"Retrieved meta: {meta}")
-        current_app.logger.info(f"Filename: {filename}")
-        
         mime = guess_mime_by_ext(filename)
-        current_app.logger.info(f"MIME type: {mime}")
 
-        # 복호화
         plaintext = decrypt_bytes(wdek_b64, iv_b64, ct_b64)
+        log_audit("crypto_tokens", "DECRYPT", {"status": "SUCCESS", "token": token, "meta": meta})
 
-        # 감사 로그
-        log_audit(
-            "crypto_tokens",
-            "DECRYPT",
-            {"status": "SUCCESS", "token": token, "meta": meta},
-        )
-        
-        # 모드 분기
-        mode = (request.args.get("mode") or "").lower()
-        if mode == "json":
-            return jsonify({
-                "ok": True,
-                "result": base64.b64encode(plaintext).decode(),
-                "filename": filename,
-            }), 200
-
-        # 파일 스트림 응답
         bio = io.BytesIO(plaintext)
         bio.seek(0)
-
-        # Flask 버전에 따라 download_name 또는 attachment_filename 사용
-        try:
-            # Flask 2.0+
-            response = send_file(
-                bio,
-                mimetype=mime,
-                as_attachment=True,
-                download_name=filename
-            )
-        except TypeError:
-            # Flask 1.x
-            response = send_file(
-                bio,
-                mimetype=mime,
-                as_attachment=True,
-                attachment_filename=filename
-            )
-        
-        # UTF-8 파일명 지원을 위한 헤더
-        response.headers["Content-Disposition"] = (
-            f"attachment; filename*=UTF-8''{urllib.parse.quote(filename)}"
+        response = send_file(
+            bio,
+            mimetype=mime,
+            as_attachment=True,
+            download_name=filename
         )
-
+        response.headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{urllib.parse.quote(filename)}"
         return response
 
     except Exception as e:
         db.session.rollback()
-        current_app.logger.exception("decrypt_failed")
-
-        # 실패 시 감사 로그
-        log_audit(
-            "crypto_tokens",
-            "DECRYPT",
-            {"status": "FAILED", "error": str(e)},
-        )
+        current_app.logger.exception("[decrypt] 실패")
+        log_audit("crypto_tokens", "DECRYPT", {"status": "FAILED", "error": str(e)})
         return jsonify({"ok": False, "error": "decrypt_failed", "message": str(e)}), 500
 
-
-# 업로드 페이지
-@crypto_bp.route("/upload/")
-def upload_page():
-    return render_template("upload.html")
-
-
-# 마스킹 파일 다운로드 (MIME 지원 + 경로 안전)
-@crypto_bp.get("/upload/masked/<path:fname>")
-def download_masked(fname):
-    safe = os.path.normpath(fname).replace("\\", "/")
-    if safe.startswith("../"):
-        return "Invalid path", 400
-    mime = guess_mime_by_ext(safe)
-    return send_from_directory("static/masked", safe, as_attachment=True, mimetype=mime)
-
-
-@crypto_bp.get("/api/audit/recent")
-@jwt_required
+# ──────────────────────────────
+# 감사 로그
+# ──────────────────────────────
+@crypto_bp.get("/audit/recent")
 def recent_audits():
-    user = get_current_user()
+    try:
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+        ua = request.headers.get("User-Agent", "unknown")
+        user = None
+        try:
+            user = get_current_user()
+        except Exception:
+            pass
 
-    if user.role != "admin":
-        return jsonify({"ok": False, "error": "forbidden", "message": "관리자만 접근 가능합니다."}), 403
+        current_app.logger.info(f"[audit/recent] accessed by user={getattr(user, 'username', None)} ip={ip}")
+
+        sql = text("""
+            SELECT op, row_new->>'status' AS status, changed_at
+            FROM pii_audit.audit_logs
+            ORDER BY changed_at DESC
+            LIMIT 20;
+        """)
+        rows = db.session.execute(sql).mappings().all()
+
+        logs = []
+        for r in rows:
+            entry = dict(r)
+            entry["ip"] = ip
+            entry["user_agent"] = ua
+            entry["user"] = getattr(user, "username", None)
+            logs.append(entry)
+
+        return jsonify({"ok": True, "logs": logs})
+    except Exception as e:
+        current_app.logger.exception(f"[audit/recent] failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+# ──────────────────────────────
+# 최근 암호화 파일 목록
+# ──────────────────────────────
+@crypto_bp.get("/recent")
+def list_recent_files():
+    limit = request.args.get("limit", 20, type=int)
     sql = text("""
-        SELECT
-            op,
-            row_new->>'status' AS status,
-            row_new->'meta'->>'user_id' AS user_id,
-            row_new->'meta'->>'client_ip' AS ip,
-            row_new->'meta'->>'user_agent' AS browser,
-            changed_at
-        FROM pii_audit.audit_logs
-        ORDER BY changed_at DESC
-        LIMIT 20;
+        SELECT meta->>'filename' AS filename, created_at
+        FROM crypto_store.crypto_tokens
+        ORDER BY created_at DESC
+        LIMIT :limit;
     """)
-    rows = db.session.execute(sql).mappings().all()
-    return jsonify({"ok": True, "logs": [dict(r) for r in rows]})
+    rows = db.session.execute(sql, {"limit": limit}).mappings().all()
+    files = [
+        {"filename": r["filename"], "created_at": r["created_at"].isoformat() if r["created_at"] else None}
+        for r in rows
+    ]
+    return jsonify({"ok": True, "files": files})
 
+# ──────────────────────────────
+# ✅ 정식 마스킹 파일 다운로드 (prefix 없음)
+# ──────────────────────────────
+@masked_bp.route("/static/masked/<path:filename>")
+def serve_masked_public(filename):
+    """React 및 Nginx에서 접근하는 공개 다운로드용"""
+    decoded = urllib.parse.unquote(filename)
+    safe = os.path.normpath(decoded).replace("\\", "/")
 
-@crypto_bp.get("/recent/view")
-def view_recent_logs():
-    """관리자 로그 페이지"""
-    return render_template("recent_logs.html")
+    if safe.startswith("../"):
+        return jsonify({"ok": False, "error": "invalid_path"}), 400
+
+    masked_dir = os.path.join(current_app.root_path, "static", "masked")
+    file_path = os.path.join(masked_dir, safe)
+
+    current_app.logger.info(f"[serve_masked_public] 요청됨: {file_path}")
+
+    if not os.path.exists(file_path):
+        current_app.logger.warning(f"[serve_masked_public] 파일 없음: {file_path}")
+        return jsonify({"ok": False, "error": "file_not_found"}), 404
+
+    mime = guess_mime_by_ext(safe)
+    return send_from_directory(
+        masked_dir,
+        safe,
+        as_attachment=True,
+        mimetype=mime,
+        download_name=os.path.basename(safe)
+    )
+

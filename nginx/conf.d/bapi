@@ -40,18 +40,7 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # ✅ Flask 템플릿 직접 표시용
-    location ^~ /recent/view {
-        proxy_pass http://backend;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # ✅ React/Vite SPA 라우팅
+    # ✅ React/Vite SPA 라우팅 (최우선)
     location / {
         try_files $uri /index.html;
         add_header 'Access-Control-Allow-Origin' '*' always;
@@ -61,9 +50,21 @@ server {
     }
 
     # ─────────────────────────────────────────────
-    # ✅ Flask 마스킹 파일(static/masked) 프록시 전달 (방법 A)
+    # /static/masked/* → /upload/masked/* 리다이렉트
     # ─────────────────────────────────────────────
-    location ^~ /static/masked/ {
+    location ~ ^/static/masked/(.+)$ {
+        return 302 /upload/masked/$1;
+    }
+
+    # ─────────────────────────────────────────────
+    # /upload/masked/* → Flask static/masked 로 프록시 전달
+    # ─────────────────────────────────────────────
+    location ^~ /upload/masked/ {
+        add_header 'Access-Control-Allow-Origin' '*' always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS, PUT, DELETE' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+
         proxy_pass http://backend/static/masked/;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
@@ -71,11 +72,6 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-
-        add_header 'Access-Control-Allow-Origin' '*' always;
-        add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
-        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type' always;
-        add_header 'Access-Control-Allow-Credentials' 'true' always;
     }
 
     # ─────────────────────────────────────────────
