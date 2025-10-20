@@ -1,0 +1,70 @@
+# utils/encryptor.py
+import os
+import base64
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import boto3
+from utils.audit_logger import log_audit
+
+# AWS 환경설정
+REGION = os.getenv("AWS_REGION", "ap-northeast-2")
+KMS_KEY_ID = os.getenv("KMS_KEY_ID", "alias/KEK")
+
+kms = boto3.client("kms", region_name=REGION)
+
+def encrypt_file(file_path: str, user_id: int, kms_key_id: str = None):
+    """
+    파일을 AWS KMS 기반 AES-GCM으로 암호화.
+    암호화된 파일(.enc)과 메타데이터를 반환.
+    """
+    kms_key_id = kms_key_id or KMS_KEY_ID
+    if not kms_key_id:
+        raise ValueError("KMS_KEY_ID is not set.")
+
+    # 1️⃣ 파일 읽기
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    with open(file_path, "rb") as f:
+        plaintext = f.read()
+
+    # 2️⃣ AWS KMS에서 DataKey 생성 (Envelope Encryption)
+    response = kms.generate_data_key(KeyId=kms_key_id, KeySpec="AES_256")
+    plain_key = response["Plaintext"]        # 암호화용 실제 키
+    enc_dek = response["CiphertextBlob"]     # 암호화된 데이터키 (EncDEK)
+
+    # 3️⃣ AES-GCM 암호화 수행
+    aesgcm = AESGCM(plain_key)
+    iv = os.urandom(12)
+    ciphertext = aesgcm.encrypt(iv, plaintext, None)
+
+    # 4️⃣ 메타데이터 구성 (복호화 시 필요)
+    metadata = {
+        "algorithm": "AES-GCM",
+        "kms_key_id": kms_key_id,
+        "iv": base64.b64encode(iv).decode(),
+        "enc_dek": base64.b64encode(enc_dek).decode(),
+        "cipher_len": len(ciphertext)
+    }
+
+    # 5️⃣ 암호화된 파일 저장 (.enc)
+    enc_path = file_path + ".enc"
+    with open(enc_path, "wb") as f:
+        f.write(ciphertext)
+
+    # 6️⃣ 감사 로그 기록 (서명 통일)
+    log_audit(
+        "crypto_store",
+        "ENCRYPT_FILE_FULL",
+        {
+            "status": "SUCCESS",
+            "user_id": user_id,
+            "filename": os.path.basename(file_path),
+            "metadata": metadata,
+        },
+    )
+
+    return {
+        "enc_path": enc_path,
+        "metadata": metadata
+    }
+

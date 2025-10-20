@@ -3,16 +3,9 @@ from pptx import Presentation
 from docx import Document as DocxDocument
 from typing import Optional, List, Tuple
 
-# ──────────────────────────────
-# 유틸: SHA256 해시
-# ──────────────────────────────
 def sha256_hex(b: bytes) -> str:
-    """SHA256 해시 (민감정보 식별용)"""
     return hashlib.sha256(b).hexdigest()
 
-# ──────────────────────────────
-# 민감정보(PII) 정규식 패턴 정의
-# ──────────────────────────────
 AUTH_VALUE_SUB_RE = re.compile(
     r'((password|api[_ ]?key|token)\s*[:=]\s*)([\'"]?)[^\'",\s]+([\'"]?)',
     re.IGNORECASE
@@ -20,11 +13,10 @@ AUTH_VALUE_SUB_RE = re.compile(
 
 PII_RULES_MAP = {
     "rrn": (
-        re.compile(r"\b\d{6}-\d{7}\b"),
+        re.compile(r"\b\d{6}[-]?\d{7}\b"),
         lambda s: "######-*******"
     ),
     "email": (
-        # 이메일 패턴 — 도메인(.co.kr 등) 인식은 하되 주소 패턴 오탐 방지
         re.compile(r"\b([A-Za-z0-9._%+-])([A-Za-z0-9._%+-]*)(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b"),
         lambda s: (s[0] + "***" + s[s.find('@'):]) if "@" in s else s
     ),
@@ -49,26 +41,43 @@ PII_RULES_MAP = {
         lambda s: "######-*******"
     ),
     "phone": (
-        re.compile(r"\b(01[016789]-?\d{3,4}-?\d{4}|01[016789]\d{7,8})\b"),
-        lambda s: s[:3] + "-****-" + s[-4:]
+        re.compile(r"\b(01[016789])[ ._-]?\d{3,4}[ ._-]?\d{4}\b"),
+        lambda s: "010-****-****"
     ),
-    # 🔒 KISA “Strong” 수준 주소 마스킹
     "address": (
-        re.compile(r"(?<!@)[가-힣]+(시|도)\s?[가-힣]+?(구|군|읍|면)?\s?[가-힣0-9\s]*(로|길)?\s?\d{0,3}"),
-        lambda s: re.sub(r"\s?[가-힣0-9\s]*(구|군|읍|면|로|길)\s?\d{0,3}", " [주소마스킹]", s)
+        re.compile(r"[가-힣]+\s*(시|군|구)\s*[가-힣0-9\s\-]*(동|읍|면|리|로|길)\s*\d*[-]?\d*호?"),
+        lambda s: "[주소마스킹]"
+    ),
+    "name": (
+        re.compile(r"(?<![가-힣])([가-힣]{2,4})(?![가-힣])"),
+        lambda s: "[이름마스킹]"
     ),
 }
 
 ALWAYS_MASK = {"rrn", "passport", "license", "foreign_id", "auth"}
 VALID_KEYS = set(PII_RULES_MAP.keys())
 
-# ──────────────────────────────
-# 문자열 마스킹 로직
-# ──────────────────────────────
+ORDERED_LABELS = [
+    "auth",
+    "email",
+    "phone",
+    "address",
+    "rrn",
+    "foreign_id",
+    "passport",
+    "license",
+    "card_or_acct",
+    "name",
+]
+
 def process_pii(text: str, allowed_types: Optional[List[str]] = None) -> Tuple[str, list, dict]:
-    """텍스트에서 개인정보(PII) 감지 및 마스킹 처리"""
     hits, stats, masked = [], {}, text
-    types_to_use = list(set((allowed_types or VALID_KEYS)) | ALWAYS_MASK)
+    sel = _normalize_allowed_types(allowed_types)
+    for a in ALWAYS_MASK:
+        if a not in sel:
+            sel.append(a)
+
+    types_to_use = [lbl for lbl in ORDERED_LABELS if lbl in sel]
 
     for label in types_to_use:
         pattern, mask_fn = PII_RULES_MAP[label]
@@ -85,32 +94,21 @@ def process_pii(text: str, allowed_types: Optional[List[str]] = None) -> Tuple[s
             return masked_val
 
         masked = pattern.sub(repl, masked)
-
     return masked, hits, stats
 
 def apply_mask_str(s: str, allowed_types: Optional[List[str]]) -> str:
-    """문자열 하나에 대해 마스킹 적용"""
     return process_pii(s, allowed_types)[0]
 
-# ──────────────────────────────
-# 파일 단위 마스킹 로직
-# ──────────────────────────────
 def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[List[str]]) -> str:
-    """
-    dst_masked_path: 최종 마스킹 파일 경로 (저장될 곳)
-    반환: 최종 마스킹된 파일 이름 (basename)
-    """
     ext = os.path.splitext(src_path)[1].lower()
     os.makedirs(os.path.dirname(dst_masked_path), exist_ok=True)
 
-    # TXT / CSV / JSON
     if ext in [".txt", ".csv", ".json"]:
         with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
             masked = apply_mask_str(f.read(), allowed_types)
         with open(dst_masked_path, "w", encoding="utf-8") as f:
             f.write(masked)
 
-    # XLSX
     elif ext == ".xlsx":
         wb = openpyxl.load_workbook(src_path, data_only=True)
         out = []
@@ -123,7 +121,6 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
         with open(dst_masked_path, "w", encoding="utf-8") as f:
             f.write(masked_txt)
 
-    # PDF
     elif ext == ".pdf":
         text = []
         with pdfplumber.open(src_path) as pdf:
@@ -135,7 +132,6 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
         with open(dst_masked_path, "w", encoding="utf-8") as f:
             f.write(masked_txt)
 
-    # DOCX
     elif ext == ".docx":
         doc = DocxDocument(src_path)
         for p in doc.paragraphs:
@@ -147,7 +143,6 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
                         p.text = apply_mask_str(p.text, allowed_types)
         doc.save(dst_masked_path)
 
-    # PPTX
     elif ext == ".pptx":
         prs = Presentation(src_path)
         for slide in prs.slides:
@@ -157,7 +152,6 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
                         para.text = apply_mask_str(para.text, allowed_types)
         prs.save(dst_masked_path)
 
-    # 기타 포맷: 일반 텍스트로 처리
     else:
         with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
             raw = f.read()
@@ -169,24 +163,21 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
 
     return os.path.basename(dst_masked_path)
 
-# ──────────────────────────────
-# 마스킹 항목 정규화 유틸
-# ──────────────────────────────
 ALIASES = {
     "전화": "phone",
     "이메일": "email",
     "카드": "card_or_acct",
     "계좌": "card_or_acct",
-    "인증": "auth",
+    "비밀번호": "auth",
     "주민등록번호": "rrn",
     "여권": "passport",
     "운전면허": "license",
     "외국인등록": "foreign_id",
-    "주소": "address"
+    "주소": "address",
+    "이름": "name",
 }
 
 def _normalize_allowed_types(allowed_types: Optional[List[str] | str]) -> List[str]:
-    """선택된 마스킹 항목을 정규화하여 유효한 리스트로 반환"""
     if not allowed_types:
         return list(ALWAYS_MASK)
 
@@ -208,5 +199,4 @@ def _normalize_allowed_types(allowed_types: Optional[List[str] | str]) -> List[s
         k = ALIASES.get(p.lower(), p.lower())
         if k in VALID_KEYS:
             out.append(k)
-    return list(set(out))
-
+    return list(dict.fromkeys(out))

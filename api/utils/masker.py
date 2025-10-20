@@ -11,13 +11,38 @@ AUTH_VALUE_SUB_RE = re.compile(
     re.IGNORECASE
 )
 
+# ──────────────────────────────
+# ✅ 주소 마스킹 보조 함수
+# ──────────────────────────────
+def _mask_address(addr: str) -> str:
+    """
+    예시:
+      서울시 강남구 테헤란로 101 → 서울시 **구 ***로
+      부산광역시 해운대구 센텀동 23 → 부산광역시 **구 ***동
+    """
+    m = re.match(r"([가-힣]+시)\s*([가-힣]+[군구])\s*([가-힣0-9\-]+[로동길])", addr)
+    if not m:
+        return "[주소마스킹]"
+    city, district, street = m.groups()
+    masked_district = "*" * (len(district) - 1) + district[-1]
+    masked_street = "*" * (len(street) - 1) + street[-1]
+    masked_city = "*" * (len(city) - 1) + city[-1]
+    return f"{masked_city} {masked_district} {masked_street}"
+
+# ──────────────────────────────
+# ✅ 마스킹 규칙
+# ──────────────────────────────
 PII_RULES_MAP = {
     "rrn": (
         re.compile(r"\b\d{6}[-]?\d{7}\b"),
         lambda s: "######-*******"
     ),
     "email": (
-        re.compile(r"\b([A-Za-z0-9._%+-])([A-Za-z0-9._%+-]*)(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b"),
+        re.compile(
+            r"(?:(?:이메일|메일주소|email[\s:]?|e-mail[\s:]?)\s*[:=]?\s*)?"
+            r"\b([A-Za-z0-9._%+-])([A-Za-z0-9._%+-]*)(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b",
+            re.IGNORECASE
+        ),
         lambda s: (s[0] + "***" + s[s.find('@'):]) if "@" in s else s
     ),
     "card_or_acct": (
@@ -40,20 +65,32 @@ PII_RULES_MAP = {
         re.compile(r"\b\d{6}-[5-8]\d{6}\b"),
         lambda s: "######-*******"
     ),
+    # ✅ 연락처(연락처, 전화, 핸드폰 등 확장)
     "phone": (
-        re.compile(r"\b(01[016789])[ ._-]?\d{3,4}[ ._-]?\d{4}\b"),
+        re.compile(
+            r"(?:(?:전화|연락처|핸드폰|휴대폰|mobile|contact)[\s:]*)?"
+            r"\b(01[016789])[ ._-]?\d{3,4}[ ._-]?\d{4}\b"
+        ),
         lambda s: "010-****-****"
     ),
+    # ✅ 주소 개선 버전
     "address": (
-        re.compile(r"[가-힣]+\s*(시|군|구)\s*[가-힣0-9\s\-]*(동|읍|면|리|로|길)\s*\d*[-]?\d*호?"),
-        lambda s: "[주소마스킹]"
+        re.compile(
+            r"([가-힣]+시)\s*([가-힣]+[군구])\s*([가-힣0-9\-]+[로동길])"
+        ),
+        lambda s: _mask_address(s)
     ),
+    # ✅ 이름 개선 버전 (가운데만 *)
     "name": (
-        re.compile(r"(?<![가-힣])([가-힣]{2,4})(?![가-힣])"),
-        lambda s: "[이름마스킹]"
+        re.compile(r"(?:(?:이름|성명|name)\s*[:=]?\s*)?([가-힣]{2,4})(?![가-힣])"),
+        lambda s: (
+            s[0] + "*" * (len(s) - 2) + s[-1] if len(s) >= 3
+            else s[0] + "*"
+        )
     ),
 }
 
+# ──────────────────────────────
 ALWAYS_MASK = {"rrn", "passport", "license", "foreign_id", "auth"}
 VALID_KEYS = set(PII_RULES_MAP.keys())
 
@@ -70,6 +107,7 @@ ORDERED_LABELS = [
     "name",
 ]
 
+# ──────────────────────────────
 def process_pii(text: str, allowed_types: Optional[List[str]] = None) -> Tuple[str, list, dict]:
     hits, stats, masked = [], {}, text
     sel = _normalize_allowed_types(allowed_types)
@@ -163,6 +201,7 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
 
     return os.path.basename(dst_masked_path)
 
+# ──────────────────────────────
 ALIASES = {
     "전화": "phone",
     "이메일": "email",
@@ -200,3 +239,4 @@ def _normalize_allowed_types(allowed_types: Optional[List[str] | str]) -> List[s
         if k in VALID_KEYS:
             out.append(k)
     return list(dict.fromkeys(out))
+
