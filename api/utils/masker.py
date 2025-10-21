@@ -1,4 +1,4 @@
-import os, re, json, hashlib, openpyxl, pdfplumber
+import os, re, json, hashlib, openpyxl, fitz
 from pptx import Presentation
 from docx import Document as DocxDocument
 from typing import Optional, List, Tuple
@@ -14,79 +14,108 @@ AUTH_VALUE_SUB_RE = re.compile(
 # ──────────────────────────────
 # ✅ 주소 마스킹 보조 함수
 # ──────────────────────────────
-def _mask_address(addr: str) -> str:
-    """
-    예시:
-      서울시 강남구 테헤란로 101 → 서울시 **구 ***로
-      부산광역시 해운대구 센텀동 23 → 부산광역시 **구 ***동
-    """
-    m = re.match(r"([가-힣]+시)\s*([가-힣]+[군구])\s*([가-힣0-9\-]+[로동길])", addr)
-    if not m:
-        return "[주소마스킹]"
-    city, district, street = m.groups()
-    masked_district = "*" * (len(district) - 1) + district[-1]
-    masked_street = "*" * (len(street) - 1) + street[-1]
-    masked_city = "*" * (len(city) - 1) + city[-1]
-    return f"{masked_city} {masked_district} {masked_street}"
+sido_list = [
+    "강원특별자치도", "강원도", "강원", "경기도", "경기", "경상남도", "경남", "경상북도", "경북", "광주광역시", "광주",
+    "대구광역시", "대구", "대전광역시", "대전", "부산광역시", "부산", "서울특별시", "서울", "세종특별자치시", "세종",
+    "세종시", "울산광역시", "울산", "인천광역시", "인천", "전라남도", "전남", "전라북도", "전북", "제주특별자치도",
+    "제주", "제주도", "충청남도", "충남", "충청북도", "충북"
+]
+sigungu_list = [
+    "가평군", "강남구", "강동구", "강릉시", "강북구", "강서구", "강진군", "강화군", "거제시", "거창군", "경산시",
+    "경주시", "계룡시", "계양구", "고령군", "고성군", "고양시", "고창군", "고흥군", "곡성군", "공주시", "과천시",
+    "관악구", "광명시", "광산구", "광양시", "광주시", "광진구", "괴산군", "구례군", "구로구", "구리시", "구미시",
+    "군산시", "군위군", "군포시", "권선구", "금산군", "금정구", "금천구", "기장군", "기흥구", "김제시", "김천시",
+    "김포시", "김해시", "나주시", "남구", "남동구", "남양주시", "남원시", "남해군", "노원구", "논산시", "단양군",
+    "단원구", "달서구", "달성군", "담양군", "당진시", "대덕구", "덕양구", "덕진구", "도봉구", "동구", "동남구",
+    "동대문구", "동두천시", "동래구", "동안구", "동작구", "동해시", "마산합포구", "마산회원구", "마포구", "만안구",
+    "목포시", "무안군", "무주군", "문경시", "미추홀구", "밀양시", "보령시", "보성군", "보은군", "봉화군",
+    "부산진구", "부안군", "부여군", "부천시", "부평구", "북구", "분당구", "사상구", "사천시", "사하구", "산청군",
+    "삼척시", "상당구", "상록구", "상주시", "서구", "서귀포시", "서대문구", "서북구", "서산시", "서원구", "서천군",
+    "서초구", "성남시", "성동구", "성북구", "성산구", "성주군", "세종시", "소사구", "속초시", "송파구", "수성구",
+    "수영구", "수원시", "수정구", "수지구", "순창군", "순천시", "시흥시", "신안군", "아산시", "안동시", "안산시",
+    "안성시", "안양시", "양구군", "양산시", "양양군", "양주시", "양천구", "양평군", "여수시", "여주시", "연수구",
+    "연제구", "연천군", "영광군", "영덕군", "영도구", "영동군", "영등포구", "영암군", "영양군", "영월군", "영주시",
+    "영천시", "영통구", "예산군", "예천군", "오산시", "오정구", "옥천군", "옹진군", "완도군", "완산구", "완주군",
+    "용산구", "용인시", "울릉군", "울주군", "울진군", "원미구", "원주시", "유성구", "은평구", "음성군", "의령군",
+    "의성군", "의왕시", "의정부시", "의창구", "이천시", "익산시", "인제군", "일산동구", "일산서구", "임실군",
+    "장성군", "장수군", "장안구", "장흥군", "전주시", "정선군", "정읍시", "제주시", "제천시", "종로구", "중구",
+    "중랑구", "중원구", "증평군", "진도군", "진안군", "진주시", "진천군", "진해구", "창녕군", "창원시", "처인구",
+    "천안시", "철원군", "청도군", "청송군", "청양군", "청원구", "청주시", "춘천시", "충주시", "칠곡군", "태백시",
+    "태안군", "통영시", "파주시", "팔달구", "평창군", "평택시", "포천시", "포항시", "하남시", "하동군", "함안군",
+    "함양군", "함평군", "합천군", "해남군", "해운대구", "홍성군", "홍천군", "화성시", "화순군", "화천군", "횡성군",
+    "흥덕구"
+]
+
+sido_pattern = "|".join(sorted(list(set(sido_list)), key=len, reverse=True))
+sigungu_pattern = "|".join(sorted(list(set(sigungu_list)), key=len, reverse=True))
+detail_pattern_str = r'(?:[\s가-힣\d\.\-]+(?:로|길|대로|번길|읍|면|동|리|가|산)\s*[\d\s\-가-힣]*?)(?:(?:,|\s+|\().*?)?'
+
+ADDRESS_PATTERN = re.compile(
+    fr'\b(?P<sido>{sido_pattern})'
+    fr'(?:'
+    fr'(?:\s+(?P<sigungu>{sigungu_pattern})(?:\s+(?P<detail1>{detail_pattern_str}))?)'
+    fr'|'
+    fr'(?:\s+(?P<detail2>{detail_pattern_str}))'
+    fr')'
+)
+
+def _mask_address(m: re.Match) -> str:
+    sido = m.group('sido')
+    sigungu = m.group('sigungu')
+    detail = m.group('detail1') or m.group('detail2')
+
+    if sigungu:
+        if detail and detail.strip():
+            return f"{sido} {sigungu} ..."
+        else:
+            return f"{sido} {sigungu}"
+    else:
+        return f"{sido} ..."
 
 # ──────────────────────────────
-# ✅ 마스킹 규칙
+# 마스킹 규칙
 # ──────────────────────────────
+
 PII_RULES_MAP = {
     "rrn": (
-        re.compile(r"\b\d{6}[-]?\d{7}\b"),
-        lambda s: "######-*******"
+        re.compile(r"\b(\d{6})\s?-\s?([1-4]\d{6})\b"),
+        lambda m: f"{m.group(1)}-*******"
+    ),
+    "foreign_id": (
+        re.compile(r"\b(\d{6})\s?-\s?([5-8]\d{6})\b"),
+        lambda m: f"{m.group(1)}-*******"
     ),
     "email": (
-        re.compile(
-            r"(?:(?:이메일|메일주소|email[\s:]?|e-mail[\s:]?)\s*[:=]?\s*)?"
-            r"\b([A-Za-z0-9._%+-])([A-Za-z0-9._%+-]*)(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b",
-            re.IGNORECASE
-        ),
-        lambda s: (s[0] + "***" + s[s.find('@'):]) if "@" in s else s
+        re.compile(r"\b([A-Za-z0-9._%+-]{1})[A-Za-z0-9._%+-]*(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b", re.IGNORECASE),
+        lambda m: m.group(1) + "***" + m.group(2)
     ),
     "card_or_acct": (
-        re.compile(r"\b\d{10,19}\b"),
-        lambda s: (s[:6] + "******" + s[-4:]) if len(s) >= 10 else "******"
+        re.compile(r"\b(?:\d[\s-]*){10,19}\d\b"),
+        lambda m: (clean := re.sub(r'[\s-]', '', m.group(0))) and (clean[:6] + '******' + clean[-4:]) if len(clean) >= 10 else "******"
     ),
     "auth": (
         re.compile(r"\b(password|api[_ ]?key|token)\s*[:=]\s*['\"]?[^'\",\s]+['\"]?", re.IGNORECASE),
-        lambda s: AUTH_VALUE_SUB_RE.sub(r"\1[SECRET]", s)
+        lambda m: AUTH_VALUE_SUB_RE.sub(r"\1[SECRET]", m.group(0))
     ),
     "passport": (
-        re.compile(r"\b[A-Z][0-9]{8}\b", re.IGNORECASE),
-        lambda s: s[0] + "********"
+        re.compile(r"\b[MSPRJ]\d{8}\b", re.IGNORECASE),
+        lambda m: "*********"
     ),
     "license": (
-        re.compile(r"\b\d{2}-\d{2}-\d{6}-\d{2}\b|\b\d{2}-\d{6}-\d{2}-\d{2}\b"),
-        lambda s: re.sub(r"\d", "*", s)
+        re.compile(r"\b\d{2}\s?-\s?\d{2}\s?-\s?\d{6}\s?-\s?\d{2}\b|\b\d{2}\s?-\s?\d{6}\s?-\s?\d{2}\s?-\s?\d{2}\b"),
+        lambda m: re.sub(r"\d", "*", m.group(0))
     ),
-    "foreign_id": (
-        re.compile(r"\b\d{6}-[5-8]\d{6}\b"),
-        lambda s: "######-*******"
-    ),
-    # ✅ 연락처(연락처, 전화, 핸드폰 등 확장)
     "phone": (
-        re.compile(
-            r"(?:(?:전화|연락처|핸드폰|휴대폰|mobile|contact)[\s:]*)?"
-            r"\b(01[016789])[ ._-]?\d{3,4}[ ._-]?\d{4}\b"
-        ),
-        lambda s: "010-****-****"
+        re.compile(r"\b(010|070|02|0[3-6][1-5]|0[7-8][0-9])(\s?-\s?)(\d{3,4})(\s?-\s?)(\d{4})\b"),
+        lambda m: f"{m.group(1)}{m.group(2)}{'*' * len(m.group(3))}{m.group(4)}{m.group(5)}"
     ),
-    # ✅ 주소 개선 버전
     "address": (
-        re.compile(
-            r"([가-힣]+시)\s*([가-힣]+[군구])\s*([가-힣0-9\-]+[로동길])"
-        ),
-        lambda s: _mask_address(s)
+        ADDRESS_PATTERN,
+        _mask_address
     ),
-    # ✅ 이름 개선 버전 (가운데만 *)
     "name": (
-        re.compile(r"(?:(?:이름|성명|name)\s*[:=]?\s*)?([가-힣]{2,4})(?![가-힣])"),
-        lambda s: (
-            s[0] + "*" * (len(s) - 2) + s[-1] if len(s) >= 3
-            else s[0] + "*"
-        )
+        re.compile(r"([가-힣]{1})([가-힣]{1,3})\b"),
+        lambda m: m.group(1) + "*" * len(m.group(2))
     ),
 }
 
@@ -95,47 +124,63 @@ ALWAYS_MASK = {"rrn", "passport", "license", "foreign_id", "auth"}
 VALID_KEYS = set(PII_RULES_MAP.keys())
 
 ORDERED_LABELS = [
-    "auth",
-    "email",
-    "phone",
-    "address",
-    "rrn",
-    "foreign_id",
-    "passport",
-    "license",
-    "card_or_acct",
-    "name",
+    "auth", "email", "phone", "address", "rrn",
+    "foreign_id", "passport", "license", "card_or_acct", "name",
 ]
 
 # ──────────────────────────────
-def process_pii(text: str, allowed_types: Optional[List[str]] = None) -> Tuple[str, list, dict]:
-    hits, stats, masked = [], {}, text
-    sel = _normalize_allowed_types(allowed_types)
-    for a in ALWAYS_MASK:
-        if a not in sel:
-            sel.append(a)
+# ✅ PDF 리덕션(검은 박스) 좌표 계산 함수
+# ──────────────────────────────
 
-    types_to_use = [lbl for lbl in ORDERED_LABELS if lbl in sel]
+def _get_email_redact_part(match) -> Optional[Tuple[int, int]]:
+    start_idx = match.end(1)
+    end_idx = match.start(2)
+    return (start_idx, end_idx) if start_idx < end_idx else None
 
-    for label in types_to_use:
-        pattern, mask_fn = PII_RULES_MAP[label]
+def _get_rrn_foreign_id_redact_part(match) -> Optional[Tuple[int, int]]:
+    return match.start(0), match.end(0)
 
-        def repl(m):
-            orig = m.group(0)
-            masked_val = mask_fn(orig)
-            hits.append({
-                "type": label,
-                "masked": masked_val,
-                "sha256": sha256_hex(orig.encode("utf-8", "ignore")),
-            })
-            stats[label] = stats.get(label, 0) + 1
-            return masked_val
+def _get_passport_redact_part(match) -> Optional[Tuple[int, int]]:
+    return match.start(0), match.end(0)
 
-        masked = pattern.sub(repl, masked)
-    return masked, hits, stats
+def _get_license_redact_part(match) -> Optional[Tuple[int, int]]:
+    return match.start(0), match.end(0) 
+
+def _get_phone_redact_part(match) -> Optional[Tuple[int, int]]:
+    if match.group(3):
+        return match.start(3), match.end(3)
+    return None
+
+def _get_address_redact_part(match) -> Optional[Tuple[int, int]]:
+    detail_group = 'detail1' if match.group('detail1') else 'detail2'
+    if match.group(detail_group) and match.group(detail_group).strip():
+        return match.start(detail_group), match.end(detail_group)
+    return None
+
+def _get_card_acct_redact_part(match) -> Optional[Tuple[int, int]]:
+    return match.start(0), match.end(0)
+
+REDACTION_LOGIC_MAP = {
+    "rrn": _get_rrn_foreign_id_redact_part,
+    "foreign_id": _get_rrn_foreign_id_redact_part,
+    "passport": _get_passport_redact_part,
+    "license": _get_license_redact_part,
+    "phone": _get_phone_redact_part,
+    "address": _get_address_redact_part,
+    "email": _get_email_redact_part,
+    "card_or_acct": _get_card_acct_redact_part,
+}
 
 def apply_mask_str(s: str, allowed_types: Optional[List[str]]) -> str:
-    return process_pii(s, allowed_types)[0]
+    sel = _normalize_allowed_types(allowed_types)
+    types_to_use = [lbl for lbl in ORDERED_LABELS if lbl in sel or lbl in ALWAYS_MASK]
+    
+    masked_text = s
+    for label in types_to_use:
+        if label in PII_RULES_MAP:
+            pattern, mask_fn = PII_RULES_MAP[label]
+            masked_text = pattern.sub(mask_fn, masked_text)
+    return masked_text
 
 def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[List[str]]) -> str:
     ext = os.path.splitext(src_path)[1].lower()
@@ -148,27 +193,67 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
             f.write(masked)
 
     elif ext == ".xlsx":
-        wb = openpyxl.load_workbook(src_path, data_only=True)
-        out = []
-        for s in wb.sheetnames:
-            for row in wb[s].iter_rows(values_only=True):
-                out.append(" ".join(str(c) for c in row if c is not None))
-        masked_txt = apply_mask_str("\n".join(out), allowed_types)
-        base, _ = os.path.splitext(dst_masked_path)
-        dst_masked_path = f"{base}_masked.txt"
-        with open(dst_masked_path, "w", encoding="utf-8") as f:
-            f.write(masked_txt)
+        wb = openpyxl.load_workbook(src_path)
+        for sheet in wb.worksheets:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if cell.value and isinstance(cell.value, str):
+                        cell.value = apply_mask_str(cell.value, allowed_types)
+        wb.save(dst_masked_path)
 
     elif ext == ".pdf":
-        text = []
-        with pdfplumber.open(src_path) as pdf:
-            for page in pdf.pages:
-                text.append(page.extract_text() or "")
-        masked_txt = apply_mask_str("\n".join(text), allowed_types)
-        base, _ = os.path.splitext(dst_masked_path)
-        dst_masked_path = f"{base}_masked.txt"
-        with open(dst_masked_path, "w", encoding="utf-8") as f:
-            f.write(masked_txt)
+        sel = _normalize_allowed_types(allowed_types)
+        types_to_use = [lbl for lbl in ORDERED_LABELS if lbl in sel or lbl in ALWAYS_MASK]
+        doc = fitz.open(src_path)
+
+        for page in doc:
+            words = page.get_text("words")
+            if not words:
+                continue
+            
+            full_page_text = " ".join(w[4] for w in words)
+            
+            char_to_word_idx = {}
+            current_pos = 0
+            for i, word_tuple in enumerate(words):
+                word_text = word_tuple[4]
+                for _ in range(len(word_text)):
+                    char_to_word_idx[current_pos] = i
+                    current_pos += 1
+                if i < len(words) -1:
+                    current_pos += 1
+            
+            for label in types_to_use:
+                if label not in REDACTION_LOGIC_MAP:
+                    continue
+
+                pattern, _ = PII_RULES_MAP[label]
+                get_part_func = REDACTION_LOGIC_MAP.get(label)
+                
+                for match in pattern.finditer(full_page_text):
+                    redact_indices = get_part_func(match)
+                    if not redact_indices:
+                        continue
+                    
+                    start_char_idx, end_char_idx = redact_indices
+                    
+                    start_word_idx = char_to_word_idx.get(start_char_idx)
+                    end_word_idx = char_to_word_idx.get(end_char_idx - 1) 
+
+                    if start_word_idx is None or end_word_idx is None:
+                        continue
+                        
+                    redact_rect = fitz.Rect()
+                    for i in range(start_word_idx, end_word_idx + 1):
+                        word_rect = fitz.Rect(words[i][:4])
+                        redact_rect |= word_rect
+                    
+                    if not redact_rect.is_empty:
+                        page.add_redact_annot(redact_rect, fill=(0, 0, 0))
+
+            page.apply_redactions()
+        doc.save(dst_masked_path, garbage=3, deflate=True, clean=True)
+        doc.close()
 
     elif ext == ".docx":
         doc = DocxDocument(src_path)
@@ -177,8 +262,7 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
-                    for p in cell.paragraphs:
-                        p.text = apply_mask_str(p.text, allowed_types)
+                    cell.text = apply_mask_str(cell.text, allowed_types)
         doc.save(dst_masked_path)
 
     elif ext == ".pptx":
@@ -190,53 +274,41 @@ def handle_masking(src_path: str, dst_masked_path: str, allowed_types: Optional[
                         para.text = apply_mask_str(para.text, allowed_types)
         prs.save(dst_masked_path)
 
-    else:
-        with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
-            raw = f.read()
-        masked = apply_mask_str(raw, allowed_types)
-        base, _ = os.path.splitext(dst_masked_path)
-        dst_masked_path = f"{base}_masked.txt"
-        with open(dst_masked_path, "w", encoding="utf-8") as f:
-            f.write(masked)
+    else: 
+        try:
+            with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
+                raw = f.read()
+            masked = apply_mask_str(raw, allowed_types)
+            base, _ = os.path.splitext(dst_masked_path)
+            new_dst_path = f"{base}_masked{ext}"
+            with open(new_dst_path, "w", encoding="utf-8") as f:
+                f.write(masked)
+            return os.path.basename(new_dst_path)
+        except Exception:
+            open(dst_masked_path, 'w').close()
+
 
     return os.path.basename(dst_masked_path)
 
 # ──────────────────────────────
 ALIASES = {
-    "전화": "phone",
-    "이메일": "email",
-    "카드": "card_or_acct",
-    "계좌": "card_or_acct",
-    "비밀번호": "auth",
-    "주민등록번호": "rrn",
-    "여권": "passport",
-    "운전면허": "license",
-    "외국인등록": "foreign_id",
-    "주소": "address",
-    "이름": "name",
+    "전화": "phone", "이메일": "email", "카드": "card_or_acct", "계좌": "card_or_acct",
+    "비밀번호": "auth", "주민등록번호": "rrn", "여권": "passport", "운전면허": "license",
+    "외국인등록": "foreign_id", "주소": "address", "이름": "name",
 }
 
 def _normalize_allowed_types(allowed_types: Optional[List[str] | str]) -> List[str]:
     if not allowed_types:
-        return list(ALWAYS_MASK)
+        return list(VALID_KEYS)
 
     if isinstance(allowed_types, str):
         parts = [p.strip() for p in allowed_types.split(",") if p.strip()]
     else:
-        parts = []
-        for x in allowed_types:
-            if x is None:
-                continue
-            s = str(x)
-            if "," in s:
-                parts.extend([p.strip() for p in s.split(",") if p.strip()])
-            else:
-                parts.append(s.strip())
+        parts = [str(x).strip() for x in allowed_types if x]
 
-    out = []
+    out = set()
     for p in parts:
         k = ALIASES.get(p.lower(), p.lower())
         if k in VALID_KEYS:
-            out.append(k)
-    return list(dict.fromkeys(out))
-
+            out.add(k)
+    return list(out)
